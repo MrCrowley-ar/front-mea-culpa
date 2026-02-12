@@ -1,2 +1,2 @@
 # front-mea-culpa
-herramienta para DM fron
+herramienta para DM front
