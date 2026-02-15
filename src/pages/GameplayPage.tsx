@@ -5,15 +5,19 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Select } from '../components/ui/Select';
 import { Input } from '../components/ui/Input';
+import { Modal } from '../components/ui/Modal';
 import { Spinner } from '../components/ui/Spinner';
 import { D20Roller } from '../components/dice/D20Roller';
 import { expeditionService } from '../services/expedition.service';
 import { gameplayService } from '../services/gameplay.service';
 import { configService } from '../services/config.service';
+import { userService } from '../services/user.service';
 import { useExpeditionStore } from '../stores/expedition.store';
 import { useToastStore } from '../stores/toast.store';
+import { rollD20, rollDice } from '../lib/dice';
 import { ROOM_TYPE_ICONS, ROOM_TYPE_COLORS, TIER_LABELS } from '../config/constants';
 import type { Piso } from '../types/config';
+import type { User } from '../types/auth';
 import type {
   EncounterResponse,
   ProcesarRecompensasResponse,
@@ -29,34 +33,46 @@ export function GameplayPage() {
   const store = useExpeditionStore();
   const [loading, setLoading] = useState(true);
   const [pisos, setPisos] = useState<Piso[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
 
-  // Floor generation state
+  // Floor generation
   const [includeBonus, setIncludeBonus] = useState(false);
   const [includeEvento, setIncludeEvento] = useState(false);
   const [generatingFloor, setGeneratingFloor] = useState(false);
 
-  // Encounter state
+  // Encounter
   const [encounterLoading, setEncounterLoading] = useState(false);
 
-  // Rewards state
+  // Rewards
   const [rewardTiradas, setRewardTiradas] = useState<Array<{ d20: string; subtabla: string }>>([]);
   const [rewardsLoading, setRewardsLoading] = useState(false);
 
-  // Item assignment state
+  // Item assignment
   const [itemAssignments, setItemAssignments] = useState<Record<number, number>>({});
   const [assigningItems, setAssigningItems] = useState(false);
 
-  // Gold state
+  // Gold
   const [goldTotal, setGoldTotal] = useState('');
+  const [goldRollResult, setGoldRollResult] = useState<number | null>(null);
   const [distributingGold, setDistributingGold] = useState(false);
   const [goldResults, setGoldResults] = useState<RepartoOro[]>([]);
 
-  // Completing room
+  // Room completion
   const [completingRoom, setCompletingRoom] = useState(false);
 
-  // Floor selection for multi-floor
+  // Floor change
   const [newFloor, setNewFloor] = useState('');
   const [changingFloor, setChangingFloor] = useState(false);
+
+  // Player management
+  const [showPlayerPanel, setShowPlayerPanel] = useState(false);
+  const [showAddReplacement, setShowAddReplacement] = useState(false);
+  const [replacementUserId, setReplacementUserId] = useState('');
+  const [replacementCharName, setReplacementCharName] = useState('');
+  const [addingReplacement, setAddingReplacement] = useState(false);
+
+  // Step indicator inside encounter phase
+  const [encounterStep, setEncounterStep] = useState<'roll' | 'results' | 'rewards'>('roll');
 
   useEffect(() => {
     if (!id) return;
@@ -66,11 +82,13 @@ export function GameplayPage() {
       expeditionService.getById(expedId),
       expeditionService.getParticipaciones(expedId),
       configService.getPisos(),
+      userService.getAll(),
     ])
-      .then(([exp, parts, pisosData]) => {
+      .then(([exp, parts, pisosData, usersData]) => {
         store.setActiveExpedition(exp);
         store.setParticipants(parts);
         setPisos(pisosData);
+        setUsers(usersData);
 
         if (exp.estado !== 'en_curso') {
           navigate(`/expeditions/${id}`);
@@ -88,6 +106,9 @@ export function GameplayPage() {
   const currentHabitacion = store.habitaciones[store.currentHabitacionIndex] || null;
   const currentPiso = pisos.find((p) => p.numero === store.currentFloor);
   const activeParticipants = store.participants.filter((p) => p.activo);
+  const completedCount = store.habitaciones.filter((h) => h.completada).length;
+
+  // --- Handlers ---
 
   const handleGenerateFloor = useCallback(async () => {
     if (!store.activeExpedition) return;
@@ -119,9 +140,7 @@ export function GameplayPage() {
           tirada
         );
         store.setEncounterResult(result);
-        store.setPhase('encounter');
-
-        // Pre-fill reward tiradas array with empty slots for each enemy
+        setEncounterStep('results');
         setRewardTiradas(
           Array.from({ length: result.cantidad_total }, () => ({
             d20: '',
@@ -137,6 +156,15 @@ export function GameplayPage() {
     [currentHabitacion, store, addToast]
   );
 
+  const handleAutoRollAll = useCallback(() => {
+    setRewardTiradas((prev) =>
+      prev.map((t) => ({
+        ...t,
+        d20: t.d20 || String(rollD20()),
+      }))
+    );
+  }, []);
+
   const handleProcessRewards = useCallback(async () => {
     if (!currentHabitacion || !store.encounterResult) return;
 
@@ -146,7 +174,7 @@ export function GameplayPage() {
     }));
 
     if (tiradas.some((t) => t.tirada_d20 < 1 || t.tirada_d20 > 20)) {
-      addToast('Todas las tiradas deben ser entre 1 y 20', 'error');
+      addToast('Todas las tiradas d20 deben ser entre 1 y 20', 'error');
       return;
     }
 
@@ -172,7 +200,7 @@ export function GameplayPage() {
       for (const item of store.rewardsResult.items_pendientes) {
         const participacionId = itemAssignments[item.indice];
         if (!participacionId) {
-          addToast(`Asigna el item "${item.item_nombre}" a un jugador`, 'error');
+          addToast(`Asigna "${item.item_nombre}" a un jugador`, 'error');
           setAssigningItems(false);
           return;
         }
@@ -193,6 +221,16 @@ export function GameplayPage() {
       setAssigningItems(false);
     }
   }, [currentHabitacion, store, itemAssignments, addToast]);
+
+  const handleRollGoldDice = useCallback(() => {
+    if (!store.rewardsResult) return;
+    let total = 0;
+    for (const dado of store.rewardsResult.oro_dados) {
+      total += rollDice(dado);
+    }
+    setGoldRollResult(total);
+    setGoldTotal(String(total));
+  }, [store.rewardsResult]);
 
   const handleDistributeGold = useCallback(async () => {
     if (!currentHabitacion || !store.activeExpedition) return;
@@ -228,12 +266,8 @@ export function GameplayPage() {
       addToast('Sala completada!', 'success');
 
       // Reset transient state
-      setRewardTiradas([]);
-      setItemAssignments({});
-      setGoldTotal('');
-      setGoldResults([]);
+      resetRoomState();
 
-      // Move to next room or check if all done
       const nextIndex = store.habitaciones.findIndex(
         (h, i) => i > store.currentHabitacionIndex && !h.completada
       );
@@ -248,7 +282,7 @@ export function GameplayPage() {
     } finally {
       setCompletingRoom(false);
     }
-  }, [currentHabitacion, store, addToast]);
+  }, [currentHabitacion, store, addToast]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleChangeFloor = useCallback(async () => {
     if (!store.activeExpedition || !newFloor) return;
@@ -284,14 +318,89 @@ export function GameplayPage() {
     }
   }, [store, id, navigate, addToast]);
 
+  const handleDeactivatePlayer = useCallback(
+    async (participacionId: number) => {
+      try {
+        await expeditionService.desactivarParticipante(participacionId);
+        store.setParticipants(
+          store.participants.map((p) =>
+            p.id === participacionId ? { ...p, activo: false } : p
+          )
+        );
+        addToast('Jugador desactivado', 'info');
+      } catch {
+        addToast('Error al desactivar jugador', 'error');
+      }
+    },
+    [store, addToast]
+  );
+
+  const handleReactivatePlayer = useCallback(
+    async (participacionId: number) => {
+      try {
+        await expeditionService.reactivarParticipante(participacionId);
+        store.setParticipants(
+          store.participants.map((p) =>
+            p.id === participacionId ? { ...p, activo: true } : p
+          )
+        );
+        addToast('Jugador reactivado', 'success');
+      } catch {
+        addToast('Error al reactivar jugador', 'error');
+      }
+    },
+    [store, addToast]
+  );
+
+  const handleAddReplacement = useCallback(async () => {
+    if (!id || !replacementUserId || !replacementCharName.trim()) return;
+    setAddingReplacement(true);
+    try {
+      const part = await expeditionService.addParticipacion(parseInt(id), {
+        usuario_id: replacementUserId,
+        nombre_personaje: replacementCharName.trim(),
+      });
+      store.setParticipants([...store.participants, part]);
+      setShowAddReplacement(false);
+      setReplacementUserId('');
+      setReplacementCharName('');
+      addToast('Reemplazo agregado', 'success');
+    } catch {
+      addToast('Error al agregar reemplazo', 'error');
+    } finally {
+      setAddingReplacement(false);
+    }
+  }, [id, replacementUserId, replacementCharName, store, addToast]);
+
+  const resetRoomState = () => {
+    setRewardTiradas([]);
+    setItemAssignments({});
+    setGoldTotal('');
+    setGoldRollResult(null);
+    setGoldResults([]);
+    setEncounterStep('roll');
+  };
+
+  const enterRoom = (index: number) => {
+    store.setCurrentHabitacionIndex(index);
+    store.setPhase('encounter');
+    store.setEncounterResult(null);
+    store.setRewardsResult(null);
+    resetRoomState();
+  };
+
   if (loading) return <Spinner className="py-12" />;
   if (!store.activeExpedition) {
     return <p className="text-stone-500">Expedicion no encontrada</p>;
   }
 
+  const availableUsersForReplacement = users.filter(
+    (u) => !store.participants.some((p) => p.usuario_id === u.discord_id)
+  );
+
   return (
-    <div className="space-y-6 max-w-4xl">
-      {/* Status bar */}
+    <div className="space-y-4 max-w-5xl">
+      {/* ═══════════ HEADER ═══════════ */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold text-stone-100 font-[var(--font-heading)]">
@@ -301,127 +410,173 @@ export function GameplayPage() {
             Piso {store.activeExpedition.piso_actual}
             {currentPiso &&
               ` — Tier ${currentPiso.tier_numero} (${TIER_LABELS[currentPiso.tier_numero]}) — Bonus +${currentPiso.bonus_recompensa}`}
+            {store.habitaciones.length > 0 &&
+              ` — ${completedCount}/${store.habitaciones.length} salas`}
           </p>
         </div>
         <div className="flex gap-2">
           <Badge estado="en_curso" label="En Curso" />
-          <Button size="sm" variant="danger" onClick={handleCompleteExpedition}>
-            Finalizar
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setShowPlayerPanel(true)}
+          >
+            Jugadores
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => navigate(`/expeditions/${id}/summary`)}
+          >
+            Resumen
           </Button>
         </div>
       </div>
 
-      {/* Participants bar */}
+      {/* ═══════════ PARTICIPANTS BAR ═══════════ */}
       <div className="flex gap-2 overflow-x-auto pb-1">
         {store.participants.map((p) => (
           <div
             key={p.id}
-            className={`flex-shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs ${
+            className={`flex-shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs transition-colors ${
               p.activo
                 ? 'border-amber-600/40 bg-amber-600/10 text-amber-300'
-                : 'border-stone-600 bg-stone-800 text-stone-500 line-through'
+                : 'border-red-800/40 bg-red-900/10 text-stone-500'
             }`}
           >
-            <span>{p.nombre_personaje}</span>
-            <span className="text-stone-500">{p.oro_acumulado}g</span>
+            {!p.activo && <span className="text-red-400 text-[10px]">X</span>}
+            <span className={!p.activo ? 'line-through' : ''}>
+              {p.nombre_personaje}
+            </span>
+            <span className="text-amber-500/70 font-mono">{p.oro_acumulado}g</span>
           </div>
         ))}
       </div>
 
-      {/* PHASE: Floor Select */}
+      {/* ═══════════ PHASE: FLOOR SELECT ═══════════ */}
       {store.phase === 'floor_select' && (
         <Card>
           <h2 className="text-lg font-semibold text-stone-200 mb-4 font-[var(--font-heading)]">
             Generar Piso {store.activeExpedition.piso_actual}
           </h2>
+          {currentPiso && (
+            <div className="mb-4 p-3 rounded bg-[var(--color-dungeon)] border border-[var(--color-dungeon-border)]">
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                <div>
+                  <span className="text-stone-500 text-xs">Tier</span>
+                  <p className="text-stone-200">{currentPiso.tier_numero} ({TIER_LABELS[currentPiso.tier_numero]})</p>
+                </div>
+                <div>
+                  <span className="text-stone-500 text-xs">Bonus Recompensa</span>
+                  <p className="text-amber-400">+{currentPiso.bonus_recompensa}</p>
+                </div>
+                <div>
+                  <span className="text-stone-500 text-xs">Salas Comunes</span>
+                  <p className="text-stone-200">{currentPiso.num_habitaciones_comunes}</p>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="space-y-4">
-            <div className="flex gap-4 flex-wrap">
-              <label className="flex items-center gap-2 text-sm text-stone-300 cursor-pointer">
+            <div className="flex gap-6 flex-wrap">
+              <label className="flex items-center gap-2 text-sm text-stone-300 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={includeBonus}
                   onChange={(e) => setIncludeBonus(e.target.checked)}
-                  className="rounded border-stone-600 bg-stone-800 text-amber-500 focus:ring-amber-500"
+                  className="rounded border-stone-600 bg-stone-800 text-amber-500 focus:ring-amber-500 w-4 h-4"
                 />
-                Incluir Sala Bonus
+                <span>Sala Bonus</span>
+                <span className="text-amber-500 text-lg">✨</span>
               </label>
-              <label className="flex items-center gap-2 text-sm text-stone-300 cursor-pointer">
+              <label className="flex items-center gap-2 text-sm text-stone-300 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={includeEvento}
                   onChange={(e) => setIncludeEvento(e.target.checked)}
-                  className="rounded border-stone-600 bg-stone-800 text-amber-500 focus:ring-amber-500"
+                  className="rounded border-stone-600 bg-stone-800 text-amber-500 focus:ring-amber-500 w-4 h-4"
                 />
-                Incluir Sala Evento
+                <span>Sala Evento</span>
+                <span className="text-purple-400 text-lg">⚡</span>
               </label>
             </div>
-            <Button onClick={handleGenerateFloor} loading={generatingFloor}>
+            <p className="text-xs text-stone-600">
+              + 1 sala de jefe (siempre incluida)
+            </p>
+            <Button onClick={handleGenerateFloor} loading={generatingFloor} size="lg">
               Generar Salas
             </Button>
           </div>
         </Card>
       )}
 
-      {/* PHASE: Room List */}
+      {/* ═══════════ PHASE: ROOM LIST ═══════════ */}
       {store.phase === 'room_list' && (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-stone-200 font-[var(--font-heading)]">
-            Salas del Piso {store.currentFloor}
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-stone-200 font-[var(--font-heading)]">
+              Salas del Piso {store.currentFloor}
+            </h2>
+            <span className="text-sm text-stone-500">
+              {completedCount}/{store.habitaciones.length}
+            </span>
+          </div>
+
+          {/* Progress bar */}
+          <div className="h-1.5 rounded-full bg-[var(--color-dungeon-border)] overflow-hidden">
+            <div
+              className="h-full bg-amber-500 rounded-full transition-all duration-500"
+              style={{
+                width: `${(completedCount / Math.max(store.habitaciones.length, 1)) * 100}%`,
+              }}
+            />
+          </div>
+
           <div className="grid gap-2">
             {store.habitaciones.map((hab, index) => (
               <Card
                 key={hab.id}
                 hover={!hab.completada}
-                onClick={() => {
-                  if (!hab.completada) {
-                    store.setCurrentHabitacionIndex(index);
-                    store.setPhase('encounter');
-                    store.setEncounterResult(null);
-                    store.setRewardsResult(null);
-                    setRewardTiradas([]);
-                    setItemAssignments({});
-                    setGoldTotal('');
-                    setGoldResults([]);
-                  }
-                }}
-                className={`flex items-center justify-between border-l-4 ${ROOM_TYPE_COLORS[hab.tipo_nombre] || 'border-stone-500'}`}
+                onClick={() => !hab.completada && enterRoom(index)}
+                className={`flex items-center justify-between border-l-4 ${
+                  ROOM_TYPE_COLORS[hab.tipo_nombre] || 'border-stone-500'
+                } ${hab.completada ? 'opacity-60' : ''}`}
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-lg">
-                    {ROOM_TYPE_ICONS[hab.tipo_nombre] || '?'}
+                  <span className="text-xl w-8 text-center">
+                    {hab.completada ? '✅' : ROOM_TYPE_ICONS[hab.tipo_nombre] || '?'}
                   </span>
                   <div>
-                    <p className="text-stone-200 text-sm font-medium">
+                    <p className="text-stone-200 text-sm font-medium capitalize">
                       Sala {hab.orden} — {hab.tipo_nombre}
                     </p>
                   </div>
                 </div>
-                {hab.completada ? (
-                  <span className="text-emerald-500 text-xs">Completada</span>
-                ) : (
-                  <span className="text-amber-500 text-xs">Pendiente</span>
+                {!hab.completada && (
+                  <Button size="sm" variant="ghost" onClick={() => enterRoom(index)}>
+                    Entrar →
+                  </Button>
                 )}
               </Card>
             ))}
           </div>
 
           {/* All rooms completed */}
-          {store.habitaciones.every((h) => h.completada) && (
-            <Card className="border-amber-600/50">
-              <p className="text-amber-400 text-center mb-4">
-                Todas las salas completadas!
+          {store.habitaciones.length > 0 && store.habitaciones.every((h) => h.completada) && (
+            <Card className="border-amber-600/50 text-center">
+              <p className="text-amber-400 text-lg font-[var(--font-heading)] mb-4">
+                Piso Completado!
               </p>
               <div className="flex gap-3 justify-center flex-wrap">
                 <div className="flex items-end gap-2">
                   <Select
                     label="Siguiente piso"
-                    placeholder="Elegir piso..."
+                    placeholder="Elegir..."
                     value={newFloor}
                     onChange={(e) => setNewFloor(e.target.value)}
                     options={pisos.map((p) => ({
                       value: p.numero,
-                      label: `Piso ${p.numero} — Tier ${p.tier_numero}`,
+                      label: `Piso ${p.numero} — Tier ${p.tier_numero} — Bonus +${p.bonus_recompensa}`,
                     }))}
                   />
                   <Button
@@ -445,85 +600,153 @@ export function GameplayPage() {
         </div>
       )}
 
-      {/* PHASE: Encounter */}
+      {/* ═══════════ PHASE: ENCOUNTER (sala activa) ═══════════ */}
       {store.phase === 'encounter' && currentHabitacion && (
-        <Card className={`border-l-4 ${ROOM_TYPE_COLORS[currentHabitacion.tipo_nombre]}`}>
-          <h2 className="text-lg font-semibold text-stone-200 mb-4 font-[var(--font-heading)]">
-            {ROOM_TYPE_ICONS[currentHabitacion.tipo_nombre]} Sala{' '}
-            {currentHabitacion.orden} — {currentHabitacion.tipo_nombre}
-          </h2>
-
-          {!store.encounterResult ? (
-            <div className="text-center space-y-4">
-              <p className="text-stone-400">Tira el d20 para el encuentro</p>
-              {encounterLoading ? (
-                <Spinner />
-              ) : (
-                <D20Roller
-                  onRoll={handleEncounterRoll}
-                  label="Tirada de Encuentro"
-                />
-              )}
+        <div className="space-y-4">
+          {/* Room header */}
+          <Card className={`border-l-4 ${ROOM_TYPE_COLORS[currentHabitacion.tipo_nombre]}`}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-stone-200 font-[var(--font-heading)]">
+                {ROOM_TYPE_ICONS[currentHabitacion.tipo_nombre]} Sala{' '}
+                {currentHabitacion.orden} —{' '}
+                <span className="capitalize">{currentHabitacion.tipo_nombre}</span>
+              </h2>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => {
                   store.setPhase('room_list');
                   store.setEncounterResult(null);
+                  resetRoomState();
                 }}
               >
-                Volver a salas
+                ← Salas
               </Button>
             </div>
-          ) : (
-            <div className="space-y-4 animate-fade-in">
-              <EncounterDisplay encounter={store.encounterResult} />
 
-              {/* Reward tiradas */}
-              <div className="border-t border-[var(--color-dungeon-border)] pt-4">
-                <h3 className="text-sm font-medium text-stone-300 mb-3">
-                  Tiradas de Recompensa (1 por enemigo derrotado)
-                </h3>
+            {/* Step indicator */}
+            <div className="flex gap-1 mb-6">
+              {(['roll', 'results', 'rewards'] as const).map((step, i) => (
+                <div
+                  key={step}
+                  className={`h-1 flex-1 rounded-full transition-colors ${
+                    i <= ['roll', 'results', 'rewards'].indexOf(encounterStep)
+                      ? 'bg-amber-500'
+                      : 'bg-[var(--color-dungeon-border)]'
+                  }`}
+                />
+              ))}
+            </div>
+
+            {/* STEP 1: Encounter Roll */}
+            {encounterStep === 'roll' && (
+              <div className="text-center space-y-4">
+                <p className="text-stone-400 text-sm">
+                  Paso 1 — Tira el d20 para resolver el encuentro
+                </p>
+                {encounterLoading ? (
+                  <Spinner />
+                ) : (
+                  <D20Roller
+                    onRoll={handleEncounterRoll}
+                    label="Tirada de Encuentro"
+                    size="lg"
+                  />
+                )}
+              </div>
+            )}
+
+            {/* STEP 2: Encounter Results */}
+            {encounterStep === 'results' && store.encounterResult && (
+              <div className="space-y-4 animate-fade-in">
+                <EncounterDisplay encounter={store.encounterResult} />
+                <Button onClick={() => setEncounterStep('rewards')}>
+                  Continuar a Recompensas →
+                </Button>
+              </div>
+            )}
+
+            {/* STEP 3: Reward Rolls */}
+            {encounterStep === 'rewards' && store.encounterResult && (
+              <div className="space-y-4 animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-medium text-stone-300">
+                    Paso 3 — Tiradas de Recompensa ({store.encounterResult.cantidad_total} enemigos)
+                  </h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleAutoRollAll}
+                  >
+                    Auto-roll vacios
+                  </Button>
+                </div>
+
                 <div className="space-y-2">
                   {rewardTiradas.map((t, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <span className="text-xs text-stone-500 w-20">
+                    <div
+                      key={i}
+                      className="flex items-center gap-3 p-2 rounded bg-[var(--color-dungeon)] border border-[var(--color-dungeon-border)]"
+                    >
+                      <span className="text-xs text-stone-500 w-20 flex-shrink-0">
                         Enemigo {i + 1}
                       </span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="20"
-                        placeholder="d20"
-                        value={t.d20}
-                        onChange={(e) => {
-                          const newTiradas = [...rewardTiradas];
-                          newTiradas[i] = { ...newTiradas[i], d20: e.target.value };
-                          setRewardTiradas(newTiradas);
-                        }}
-                        className="w-16 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-2 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
-                      />
-                      <input
-                        type="number"
-                        min="1"
-                        max="20"
-                        placeholder="Sub"
-                        value={t.subtabla}
-                        onChange={(e) => {
-                          const newTiradas = [...rewardTiradas];
-                          newTiradas[i] = {
-                            ...newTiradas[i],
-                            subtabla: e.target.value,
-                          };
-                          setRewardTiradas(newTiradas);
-                        }}
-                        className="w-16 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-2 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
-                      />
-                      <span className="text-xs text-stone-600">(subtabla, si aplica)</span>
+
+                      {/* d20 input */}
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-stone-600">d20:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="20"
+                          value={t.d20}
+                          onChange={(e) => {
+                            const newTiradas = [...rewardTiradas];
+                            newTiradas[i] = { ...newTiradas[i], d20: e.target.value };
+                            setRewardTiradas(newTiradas);
+                          }}
+                          className="w-14 rounded border bg-[var(--color-dungeon-surface)] border-[var(--color-dungeon-border)] px-2 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                        />
+                        <button
+                          onClick={() => {
+                            const newTiradas = [...rewardTiradas];
+                            newTiradas[i] = { ...newTiradas[i], d20: String(rollD20()) };
+                            setRewardTiradas(newTiradas);
+                          }}
+                          className="text-amber-600 hover:text-amber-400 transition-colors text-xs px-1"
+                          title="Auto-roll"
+                        >
+                          🎲
+                        </button>
+                      </div>
+
+                      {/* Subtable input */}
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-stone-600">sub:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="20"
+                          value={t.subtabla}
+                          onChange={(e) => {
+                            const newTiradas = [...rewardTiradas];
+                            newTiradas[i] = { ...newTiradas[i], subtabla: e.target.value };
+                            setRewardTiradas(newTiradas);
+                          }}
+                          placeholder="—"
+                          className="w-14 rounded border bg-[var(--color-dungeon-surface)] border-[var(--color-dungeon-border)] px-2 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                        />
+                      </div>
+
+                      {/* Indicator */}
+                      {t.d20 && (
+                        <span className="text-emerald-500 text-xs">✓</span>
+                      )}
                     </div>
                   ))}
                 </div>
-                <div className="flex gap-2 mt-4">
+
+                <div className="flex gap-2 pt-2">
                   <Button
                     onClick={handleProcessRewards}
                     loading={rewardsLoading}
@@ -534,33 +757,30 @@ export function GameplayPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      store.setPhase('room_list');
-                      store.setEncounterResult(null);
-                    }}
+                    onClick={() => setEncounterStep('results')}
                   >
-                    Volver
+                    ← Atras
                   </Button>
                 </div>
               </div>
-            </div>
-          )}
-        </Card>
+            )}
+          </Card>
+        </div>
       )}
 
-      {/* PHASE: Assign Items */}
+      {/* ═══════════ PHASE: ASSIGN ITEMS ═══════════ */}
       {store.phase === 'assign_items' && store.rewardsResult && (
         <Card>
           <h2 className="text-lg font-semibold text-stone-200 mb-4 font-[var(--font-heading)]">
-            Asignar Items
+            Resultados de Recompensas
           </h2>
 
           <RewardsDisplay results={store.rewardsResult} />
 
           {store.rewardsResult.items_pendientes.length > 0 ? (
-            <div className="space-y-3 mt-4">
-              <h3 className="text-sm font-medium text-stone-300">
-                Items a asignar:
+            <div className="space-y-3 mt-4 pt-4 border-t border-[var(--color-dungeon-border)]">
+              <h3 className="text-sm font-medium text-amber-400">
+                Items a asignar ({store.rewardsResult.items_pendientes.length})
               </h3>
               {store.rewardsResult.items_pendientes.map((item) => (
                 <ItemAssignment
@@ -584,19 +804,19 @@ export function GameplayPage() {
               </Button>
             </div>
           ) : (
-            <div className="mt-4">
+            <div className="mt-4 pt-4 border-t border-[var(--color-dungeon-border)]">
               <p className="text-stone-500 text-sm mb-3">
-                No hay items para asignar.
+                No hay items para asignar en esta sala.
               </p>
               <Button onClick={() => store.setPhase('distribute_gold')}>
-                Continuar al Oro
+                Continuar al Oro →
               </Button>
             </div>
           )}
         </Card>
       )}
 
-      {/* PHASE: Distribute Gold */}
+      {/* ═══════════ PHASE: DISTRIBUTE GOLD ═══════════ */}
       {store.phase === 'distribute_gold' && (
         <Card>
           <h2 className="text-lg font-semibold text-stone-200 mb-4 font-[var(--font-heading)]">
@@ -604,27 +824,54 @@ export function GameplayPage() {
           </h2>
           {store.rewardsResult && store.rewardsResult.oro_dados.length > 0 ? (
             <div className="space-y-4">
-              <p className="text-stone-400 text-sm">
-                Dados de oro a tirar:{' '}
-                <span className="text-amber-400 font-medium">
-                  {store.rewardsResult.oro_dados.join(', ')}
-                </span>
-              </p>
-              <Input
-                label="Total de oro (suma de todos los dados)"
-                type="number"
-                min="0"
-                value={goldTotal}
-                onChange={(e) => setGoldTotal(e.target.value)}
-                placeholder="Ej: 14"
-              />
-              <Button
-                onClick={handleDistributeGold}
-                loading={distributingGold}
-                disabled={!goldTotal}
-              >
-                Repartir
-              </Button>
+              <div className="p-3 rounded bg-[var(--color-dungeon)] border border-[var(--color-dungeon-border)]">
+                <p className="text-stone-400 text-sm mb-2">
+                  Dados de oro a tirar:
+                </p>
+                <div className="flex items-center gap-3 flex-wrap">
+                  {store.rewardsResult.oro_dados.map((dado, i) => (
+                    <span
+                      key={i}
+                      className="px-3 py-1 rounded-full bg-amber-600/20 border border-amber-600/40 text-amber-300 text-sm font-mono"
+                    >
+                      {dado}
+                    </span>
+                  ))}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRollGoldDice}
+                  >
+                    🎲 Tirar dados
+                  </Button>
+                </div>
+                {goldRollResult !== null && (
+                  <p className="mt-2 text-xs text-stone-500">
+                    Resultado auto-roll: <span className="text-amber-400">{goldRollResult}</span>
+                    <span className="text-stone-600"> (podes cambiar el valor abajo)</span>
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-end gap-3">
+                <div className="flex-1 max-w-xs">
+                  <Input
+                    label="Total de oro"
+                    type="number"
+                    min="0"
+                    value={goldTotal}
+                    onChange={(e) => setGoldTotal(e.target.value)}
+                    placeholder="Ej: 14"
+                  />
+                </div>
+                <Button
+                  onClick={handleDistributeGold}
+                  loading={distributingGold}
+                  disabled={!goldTotal}
+                >
+                  Repartir entre {activeParticipants.length} activos
+                </Button>
+              </div>
             </div>
           ) : (
             <div>
@@ -632,61 +879,195 @@ export function GameplayPage() {
                 No hay oro para repartir en esta sala.
               </p>
               <Button onClick={() => store.setPhase('room_complete')}>
-                Completar Sala
+                Completar Sala →
               </Button>
             </div>
           )}
         </Card>
       )}
 
-      {/* PHASE: Room Complete */}
+      {/* ═══════════ PHASE: ROOM COMPLETE ═══════════ */}
       {store.phase === 'room_complete' && currentHabitacion && (
         <Card className="border-amber-600/40">
-          <h2 className="text-lg font-semibold text-amber-400 mb-4 font-[var(--font-heading)]">
-            Sala Completada!
-          </h2>
+          <div className="text-center mb-4">
+            <span className="text-3xl">✨</span>
+            <h2 className="text-lg font-semibold text-amber-400 mt-2 font-[var(--font-heading)]">
+              Sala {currentHabitacion.orden} Completada!
+            </h2>
+          </div>
 
           {goldResults.length > 0 && (
-            <div className="mb-4">
-              <h3 className="text-sm font-medium text-stone-300 mb-2">
-                Oro repartido:
+            <div className="mb-4 p-3 rounded bg-[var(--color-dungeon)] border border-[var(--color-dungeon-border)]">
+              <h3 className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-2">
+                Oro repartido
               </h3>
               <div className="space-y-1">
                 {goldResults.map((r) => (
                   <div key={r.participacion_id} className="flex justify-between text-sm">
                     <span className="text-stone-300">{r.nombre_personaje}</span>
-                    <span className="text-amber-400">{r.oro}g</span>
+                    <span className="text-amber-400 font-mono">+{r.oro}g</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          <Button onClick={handleCompleteRoom} loading={completingRoom}>
-            Continuar a siguiente sala
-          </Button>
+          <div className="flex gap-3 justify-center">
+            <Button onClick={handleCompleteRoom} loading={completingRoom}>
+              Siguiente Sala →
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowPlayerPanel(true)}
+            >
+              Gestionar Jugadores
+            </Button>
+          </div>
         </Card>
       )}
+
+      {/* ═══════════ PLAYER MANAGEMENT MODAL ═══════════ */}
+      <Modal
+        open={showPlayerPanel}
+        onClose={() => setShowPlayerPanel(false)}
+        title="Gestion de Jugadores"
+      >
+        <div className="space-y-3">
+          {store.participants.map((p) => (
+            <div
+              key={p.id}
+              className={`flex items-center justify-between p-3 rounded border ${
+                p.activo
+                  ? 'border-[var(--color-dungeon-border)] bg-[var(--color-dungeon)]'
+                  : 'border-red-800/30 bg-red-900/10'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${
+                    p.activo
+                      ? 'bg-amber-600/20 border border-amber-600/40 text-amber-400'
+                      : 'bg-red-900/30 border border-red-800/40 text-red-400'
+                  }`}
+                >
+                  {p.nombre_personaje.charAt(0)}
+                </div>
+                <div>
+                  <p className={`text-sm font-medium ${p.activo ? 'text-stone-200' : 'text-stone-500 line-through'}`}>
+                    {p.nombre_personaje}
+                  </p>
+                  <p className="text-xs text-stone-500">
+                    {p.usuario_nombre} — {p.oro_acumulado}g
+                    {!p.activo && p.sala_salida && ` — salio en sala ${p.sala_salida}`}
+                  </p>
+                </div>
+              </div>
+              {p.activo ? (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => handleDeactivatePlayer(p.id)}
+                >
+                  Desactivar
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleReactivatePlayer(p.id)}
+                >
+                  Reactivar
+                </Button>
+              )}
+            </div>
+          ))}
+
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={() => {
+              setShowPlayerPanel(false);
+              setShowAddReplacement(true);
+            }}
+          >
+            + Agregar Reemplazo
+          </Button>
+        </div>
+      </Modal>
+
+      {/* ADD REPLACEMENT MODAL */}
+      <Modal
+        open={showAddReplacement}
+        onClose={() => setShowAddReplacement(false)}
+        title="Agregar Reemplazo"
+      >
+        <div className="space-y-4">
+          <Select
+            label="Jugador"
+            placeholder="Seleccionar..."
+            value={replacementUserId}
+            onChange={(e) => setReplacementUserId(e.target.value)}
+            options={availableUsersForReplacement.map((u) => ({
+              value: u.discord_id,
+              label: u.nombre,
+            }))}
+          />
+          <Input
+            label="Nombre del Personaje"
+            value={replacementCharName}
+            onChange={(e) => setReplacementCharName(e.target.value)}
+            placeholder="Ej: Kael el Ranger"
+          />
+          <div className="flex gap-2 justify-end">
+            <Button
+              variant="secondary"
+              onClick={() => setShowAddReplacement(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleAddReplacement}
+              loading={addingReplacement}
+              disabled={!replacementUserId || !replacementCharName.trim()}
+            >
+              Agregar
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
 
-// Sub-components
+// ═══════════ Sub-components ═══════════
 
 function EncounterDisplay({ encounter }: { encounter: EncounterResponse }) {
   return (
-    <div className="bg-[var(--color-dungeon)]/50 rounded p-4">
-      <p className="text-stone-300 text-sm mb-2">
-        Tirada: <span className="text-amber-400 font-bold text-lg">{encounter.tirada}</span>
-      </p>
-      <p className="text-stone-300 text-sm mb-3">
-        Total de enemigos:{' '}
-        <span className="text-red-400 font-bold">{encounter.cantidad_total}</span>
-      </p>
-      <div className="space-y-1">
+    <div className="rounded-lg p-4 bg-[var(--color-dungeon)] border border-[var(--color-dungeon-border)]">
+      <div className="flex items-center gap-4 mb-3">
+        <div className="text-center">
+          <span className="text-stone-500 text-xs block">Tirada</span>
+          <span className="text-amber-400 font-bold text-2xl font-[var(--font-heading)]">
+            {encounter.tirada}
+          </span>
+        </div>
+        <div className="h-10 w-px bg-[var(--color-dungeon-border)]" />
+        <div>
+          <p className="text-stone-300 text-sm">
+            <span className="text-red-400 font-bold text-lg">
+              {encounter.cantidad_total}
+            </span>{' '}
+            enemigos emergen:
+          </p>
+        </div>
+      </div>
+      <div className="space-y-1.5 ml-1">
         {encounter.enemigos.map((e, i) => (
           <div key={i} className="flex items-center gap-2 text-sm">
-            <span className="text-red-400">x{e.max_cantidad}</span>
+            <span className="text-red-400 font-mono font-bold w-8">
+              x{e.max_cantidad}
+            </span>
             <span className="text-stone-200">{e.nombre}</span>
           </div>
         ))}
@@ -697,24 +1078,34 @@ function EncounterDisplay({ encounter }: { encounter: EncounterResponse }) {
 
 function RewardsDisplay({ results }: { results: ProcesarRecompensasResponse }) {
   return (
-    <div className="bg-[var(--color-dungeon)]/50 rounded p-4 space-y-2">
+    <div className="rounded-lg p-4 bg-[var(--color-dungeon)] border border-[var(--color-dungeon-border)] space-y-2">
+      <h3 className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-2">
+        Resultados
+      </h3>
       {results.resultados.map((r, i) => (
         <div key={i} className="flex items-center gap-2 text-sm">
-          <span className="text-stone-500">#{i + 1}</span>
+          <span className="text-stone-600 font-mono w-6">#{i + 1}</span>
           {r.tipo_resultado === 'nada' && (
-            <span className="text-stone-500">Nada</span>
+            <span className="text-stone-500 italic">Nada encontrado</span>
           )}
           {r.tipo_resultado === 'oro' && (
-            <span className="text-amber-400">Oro ({r.dados_oro})</span>
+            <>
+              <span className="text-amber-400 font-medium">Oro</span>
+              <span className="text-stone-500">({r.dados_oro})</span>
+            </>
           )}
           {r.tipo_resultado === 'subtabla' && (
-            <span className="text-emerald-400">
-              {r.item_nombre || r.subtabla_nombre}
-              {r.modificador_tier ? ` +${r.modificador_tier}` : ''}
-            </span>
+            <>
+              <span className="text-emerald-400 font-medium">
+                {r.item_nombre || r.subtabla_nombre}
+              </span>
+              {r.modificador_tier ? (
+                <span className="text-amber-400 font-bold">+{r.modificador_tier}</span>
+              ) : null}
+            </>
           )}
-          <span className="text-stone-600 text-xs">
-            (d20: {r.tirada_original} +{r.bonus_recompensa} = {r.tirada_con_bonus})
+          <span className="text-stone-700 text-xs ml-auto">
+            d20:{r.tirada_original} +{r.bonus_recompensa} = {r.tirada_con_bonus}
           </span>
         </div>
       ))}
@@ -734,23 +1125,23 @@ function ItemAssignment({
   onChange: (partId: number) => void;
 }) {
   return (
-    <div className="flex items-center gap-3 p-3 rounded border border-[var(--color-dungeon-border)] bg-[var(--color-dungeon)]">
-      <div className="flex-1">
+    <div className="flex items-center gap-3 p-3 rounded-lg border border-emerald-800/30 bg-emerald-900/10">
+      <div className="flex-1 min-w-0">
         <p className="text-stone-200 text-sm font-medium">
           {item.item_nombre}
           {item.modificador_tier > 0 && (
-            <span className="text-amber-400"> +{item.modificador_tier}</span>
+            <span className="text-amber-400 ml-1">+{item.modificador_tier}</span>
           )}
         </p>
-        <p className="text-xs text-stone-500">
-          {item.subtabla_nombre} &middot; d20: {item.tirada_d20}
-          {item.tirada_subtabla && ` → sub: ${item.tirada_subtabla}`}
+        <p className="text-xs text-stone-500 truncate">
+          {item.subtabla_nombre} — d20: {item.tirada_d20}
+          {item.tirada_subtabla !== null && ` → sub: ${item.tirada_subtabla}`}
         </p>
       </div>
       <select
         value={value || ''}
         onChange={(e) => onChange(parseInt(e.target.value))}
-        className="rounded border bg-[var(--color-dungeon-surface)] border-[var(--color-dungeon-border)] px-2 py-1 text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+        className="rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-3 py-1.5 text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50 max-w-[180px]"
       >
         <option value="">Asignar a...</option>
         {participants.map((p) => (
