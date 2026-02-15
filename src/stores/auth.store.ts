@@ -49,10 +49,10 @@ export const useAuthStore = create<AuthState>()(
           });
         } catch {
           set({
-            accessToken,
-            refreshToken,
+            accessToken: null,
+            refreshToken: null,
             user: null,
-            isAuthenticated: true,
+            isAuthenticated: false,
           });
         }
       },

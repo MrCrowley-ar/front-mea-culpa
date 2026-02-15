@@ -68,6 +68,7 @@ export function SummaryPage() {
 
   const handleComplete = useCallback(async () => {
     if (!id) return;
+    if (!window.confirm('Completar la expedicion? No podras seguir jugando despues de esto.')) return;
     try {
       await expeditionService.update(parseInt(id), { estado: 'completada' });
       addToast('Expedicion completada!', 'success');

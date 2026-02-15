@@ -104,6 +104,7 @@ export function ExpeditionDetailPage() {
 
   const handleCancel = async () => {
     if (!id) return;
+    if (!window.confirm('Estas seguro de cancelar esta expedicion? Esta accion no se puede deshacer.')) return;
     try {
       await expeditionService.update(parseInt(id), { estado: 'cancelada' });
       setExpedition((e) => (e ? { ...e, estado: 'cancelada' } : null));
