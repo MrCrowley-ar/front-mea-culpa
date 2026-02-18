@@ -9,7 +9,6 @@ import { useToastStore } from '../stores/toast.store';
 export function RegisterPage() {
   const [discordId, setDiscordId] = useState('');
   const [nombre, setNombre] = useState('');
-  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -26,7 +25,6 @@ export function RegisterPage() {
       const response = await authService.register({
         discord_id: discordId,
         nombre,
-        email,
         password,
       });
       setTokens(response.access_token, response.refresh_token);
@@ -79,15 +77,6 @@ export function RegisterPage() {
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
             placeholder="Tu nombre"
-            required
-          />
-
-          <Input
-            label="Email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="tu@email.com"
             required
           />
 

@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Card } from '../components/ui/Card';
 import { Spinner } from '../components/ui/Spinner';
+import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
 import { configService } from '../services/config.service';
+import { useToastStore } from '../stores/toast.store';
 import { TIER_LABELS } from '../config/constants';
-import type { Tier, Piso, TipoHabitacion, Item } from '../types/config';
+import type { Tier, Piso, TipoHabitacion, Item, AllowedDiscord } from '../types/config';
 
-type Tab = 'tiers' | 'pisos' | 'salas' | 'items';
+type Tab = 'tiers' | 'pisos' | 'salas' | 'items' | 'whitelist';
 
 export function ConfigPage() {
   const [activeTab, setActiveTab] = useState<Tab>('tiers');
@@ -13,8 +16,13 @@ export function ConfigPage() {
   const [pisos, setPisos] = useState<Piso[]>([]);
   const [tiposHabitacion, setTiposHabitacion] = useState<TipoHabitacion[]>([]);
   const [items, setItems] = useState<Item[]>([]);
+  const [allowedDiscords, setAllowedDiscords] = useState<AllowedDiscord[]>([]);
   const [loading, setLoading] = useState(true);
   const [itemFilter, setItemFilter] = useState('');
+  const [newDiscordId, setNewDiscordId] = useState('');
+  const [newDiscordNota, setNewDiscordNota] = useState('');
+  const [addingDiscord, setAddingDiscord] = useState(false);
+  const addToast = useToastStore((s) => s.addToast);
 
   useEffect(() => {
     Promise.all([
@@ -22,21 +30,54 @@ export function ConfigPage() {
       configService.getPisos(),
       configService.getTiposHabitacion(),
       configService.getItems(),
+      configService.getAllowedDiscords(),
     ])
-      .then(([t, p, th, i]) => {
+      .then(([t, p, th, i, ad]) => {
         setTiers(t);
         setPisos(p);
         setTiposHabitacion(th);
         setItems(i);
+        setAllowedDiscords(ad);
       })
       .finally(() => setLoading(false));
   }, []);
+
+  const handleAddDiscord = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!newDiscordId.trim()) return;
+    setAddingDiscord(true);
+    try {
+      const added = await configService.addAllowedDiscord(
+        newDiscordId.trim(),
+        newDiscordNota.trim() || undefined
+      );
+      setAllowedDiscords((prev) => [...prev, added]);
+      setNewDiscordId('');
+      setNewDiscordNota('');
+      addToast('Discord ID agregado a la whitelist', 'success');
+    } catch {
+      addToast('Error al agregar Discord ID', 'error');
+    } finally {
+      setAddingDiscord(false);
+    }
+  };
+
+  const handleRemoveDiscord = async (id: number) => {
+    try {
+      await configService.removeAllowedDiscord(id);
+      setAllowedDiscords((prev) => prev.filter((d) => d.id !== id));
+      addToast('Discord ID removido de la whitelist', 'success');
+    } catch {
+      addToast('Error al remover Discord ID', 'error');
+    }
+  };
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'tiers', label: 'Tiers' },
     { key: 'pisos', label: 'Pisos' },
     { key: 'salas', label: 'Tipos de Sala' },
     { key: 'items', label: 'Items' },
+    { key: 'whitelist', label: 'Whitelist' },
   ];
 
   const filteredItems = itemFilter
@@ -233,6 +274,85 @@ export function ConfigPage() {
               {filteredItems.length === 0 && (
                 <p className="text-stone-500 text-center py-4">
                   No se encontraron items.
+                </p>
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Whitelist */}
+      {activeTab === 'whitelist' && (
+        <div className="space-y-4">
+          <Card>
+            <h3 className="text-sm font-medium text-stone-300 mb-3">
+              Agregar Discord ID permitido
+            </h3>
+            <form onSubmit={handleAddDiscord} className="flex gap-3 items-end">
+              <div className="flex-1">
+                <Input
+                  label="Discord ID"
+                  value={newDiscordId}
+                  onChange={(e) => setNewDiscordId(e.target.value)}
+                  placeholder="123456789012345678"
+                  required
+                />
+              </div>
+              <div className="flex-1">
+                <Input
+                  label="Nota (opcional)"
+                  value={newDiscordNota}
+                  onChange={(e) => setNewDiscordNota(e.target.value)}
+                  placeholder="Nombre del jugador"
+                />
+              </div>
+              <Button type="submit" loading={addingDiscord}>
+                Agregar
+              </Button>
+            </form>
+          </Card>
+
+          <Card>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-stone-400 text-left border-b border-[var(--color-dungeon-border)]">
+                    <th className="pb-2 pr-4">Discord ID</th>
+                    <th className="pb-2 pr-4">Nota</th>
+                    <th className="pb-2 pr-4">Agregado</th>
+                    <th className="pb-2 w-20"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allowedDiscords.map((entry) => (
+                    <tr
+                      key={entry.id}
+                      className="border-b border-[var(--color-dungeon-border)]/50"
+                    >
+                      <td className="py-2 pr-4 text-stone-200 font-mono text-xs">
+                        {entry.discord_id}
+                      </td>
+                      <td className="py-2 pr-4 text-stone-400">
+                        {entry.nota || '-'}
+                      </td>
+                      <td className="py-2 pr-4 text-stone-500 text-xs">
+                        {new Date(entry.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="py-2">
+                        <button
+                          onClick={() => handleRemoveDiscord(entry.id)}
+                          className="text-red-400 hover:text-red-300 text-xs transition-colors"
+                        >
+                          Quitar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {allowedDiscords.length === 0 && (
+                <p className="text-stone-500 text-center py-4">
+                  No hay Discord IDs en la whitelist.
                 </p>
               )}
             </div>
