@@ -1,5 +1,6 @@
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
+import { RequireRole } from './components/layout/RequireRole';
 import { AppLayout } from './components/layout/AppLayout';
 import { ToastContainer } from './components/ui/Toast';
 import { LoginPage } from './pages/LoginPage';
@@ -38,7 +39,12 @@ const router = createBrowserRouter([
           { path: 'expeditions/:id/summary', element: <SummaryPage /> },
           { path: 'history', element: <HistoryPage /> },
           { path: 'history/:expeditionId', element: <ExpeditionHistoryPage /> },
-          { path: 'config', element: <ConfigPage /> },
+          {
+            element: <RequireRole roles={['dm', 'admin']} />,
+            children: [
+              { path: 'config', element: <ConfigPage /> },
+            ],
+          },
           { path: '*', element: <NotFoundPage /> },
         ],
       },

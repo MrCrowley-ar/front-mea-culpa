@@ -1,11 +1,19 @@
 import { NavLink } from 'react-router-dom';
 import { clsx } from 'clsx';
+import { useAuthStore } from '../../stores/auth.store';
 
-const navItems = [
+interface NavItem {
+  to: string;
+  label: string;
+  icon: string;
+  roles?: Array<'player' | 'dm' | 'admin'>;
+}
+
+const navItems: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', icon: '🏠' },
   { to: '/expeditions', label: 'Expediciones', icon: '⚔️' },
   { to: '/history', label: 'Historial', icon: '📜' },
-  { to: '/config', label: 'Configuracion', icon: '⚙️' },
+  { to: '/config', label: 'Configuracion', icon: '⚙️', roles: ['dm', 'admin'] },
 ];
 
 interface SidebarProps {
@@ -14,6 +22,12 @@ interface SidebarProps {
 }
 
 export function Sidebar({ open, onClose }: SidebarProps) {
+  const userRol = useAuthStore((s) => s.user?.rol);
+
+  const visibleItems = navItems.filter(
+    (item) => !item.roles || (userRol && item.roles.includes(userRol))
+  );
+
   return (
     <>
       {/* Mobile overlay */}
@@ -40,7 +54,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-1">
-          {navItems.map((item) => (
+          {visibleItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
