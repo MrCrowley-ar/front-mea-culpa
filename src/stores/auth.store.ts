@@ -6,7 +6,6 @@ interface JwtPayload {
   discord_id: string;
   nombre: string;
   rol: 'player' | 'dm' | 'admin';
-  email?: string;
   sub?: string;
 }
 
@@ -17,7 +16,6 @@ interface AuthState {
     discord_id: string;
     nombre: string;
     rol: 'player' | 'dm' | 'admin';
-    email?: string;
   } | null;
   isAuthenticated: boolean;
 
@@ -43,7 +41,6 @@ export const useAuthStore = create<AuthState>()(
               discord_id: decoded.discord_id || decoded.sub || '',
               nombre: decoded.nombre || '',
               rol: decoded.rol || 'player',
-              email: decoded.email,
             },
             isAuthenticated: true,
           });

@@ -7,7 +7,7 @@ import { authService } from '../services/auth.service';
 import { useToastStore } from '../stores/toast.store';
 
 export function LoginPage() {
-  const [email, setEmail] = useState('');
+  const [discordId, setDiscordId] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -21,7 +21,7 @@ export function LoginPage() {
     setLoading(true);
 
     try {
-      const response = await authService.login({ email, password });
+      const response = await authService.login({ discord_id: discordId, password });
       setTokens(response.access_token, response.refresh_token);
       addToast('Bienvenido de vuelta!', 'success');
       navigate('/dashboard');
@@ -61,11 +61,10 @@ export function LoginPage() {
           )}
 
           <Input
-            label="Email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="tu@email.com"
+            label="Discord ID"
+            value={discordId}
+            onChange={(e) => setDiscordId(e.target.value)}
+            placeholder="123456789012345678"
             required
           />
 

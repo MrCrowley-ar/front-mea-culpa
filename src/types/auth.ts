@@ -1,12 +1,11 @@
 export interface LoginRequest {
-  email: string;
+  discord_id: string;
   password: string;
 }
 
 export interface RegisterRequest {
   discord_id: string;
   nombre: string;
-  email: string;
   password: string;
 }
 
@@ -18,7 +17,6 @@ export interface AuthResponse {
 export interface User {
   discord_id: string;
   nombre: string;
-  email: string;
   rol: 'player' | 'dm' | 'admin';
   created_at: string;
 }

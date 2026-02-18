@@ -34,3 +34,10 @@ export interface Item {
   descripcion: string | null;
   es_base_modificable: boolean;
 }
+
+export interface AllowedDiscord {
+  id: number;
+  discord_id: string;
+  nota: string | null;
+  created_at: string;
+}
