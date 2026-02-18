@@ -28,13 +28,15 @@ Los **jugadores** participan via Discord. Solo el DM interactua con la web.
 
 ### Flujo de auth
 
-1. El usuario se registra con su `discord_id`, nombre, email y password
-2. Recibe un `access_token` (JWT) y un `refresh_token`
-3. Todas las llamadas al backend llevan el header `Authorization: Bearer <access_token>`
-4. Cuando el token expira, se renueva con el `refresh_token`
+1. El usuario se registra con su `discord_id`, nombre y password
+2. El `discord_id` debe estar previamente autorizado en la whitelist (`allowed_discord_ids`)
+3. Recibe un `access_token` (JWT) y un `refresh_token`
+4. Todas las llamadas al backend llevan el header `Authorization: Bearer <access_token>`
+5. Cuando el token expira, se renueva con el `refresh_token`
 
 > **Para el front:** Guardar ambos tokens. Interceptar 401 y hacer refresh automatico.
 > El `discord_id` es un string de hasta 32 caracteres (ej: "123456789012345678").
+> Si el Discord ID no esta en la whitelist, el registro devuelve 403.
 
 ---
 
@@ -178,9 +180,10 @@ Entonces un piso tipico tiene: **4 comunes + [bonus] + [evento] + 1 jefe**
 
 ### 5.1 Login / Registro
 
-- Formulario de login (email + password)
-- Formulario de registro (discord_id, nombre, email, password)
+- Formulario de login (discord_id + password)
+- Formulario de registro (discord_id, nombre, password)
 - Guardar tokens en localStorage/sessionStorage
+- Mostrar error claro si el Discord ID no esta autorizado (403)
 
 ### 5.2 Dashboard / Lista de Expediciones
 
@@ -285,8 +288,14 @@ Esta es la pantalla principal de juego. Debe mostrar:
 ```
 discord_id: string (PK, el ID de Discord)
 nombre: string
-email: string
 rol: "player" | "dm" | "admin"
+created_at: Date
+```
+
+#### AllowedDiscordId (whitelist de IDs autorizados para registrarse)
+```
+discord_id: string (PK)
+nota: string | null (nota descriptiva, ej: "Jugador principal")
 created_at: Date
 ```
 
@@ -672,9 +681,9 @@ oro_total = sum(oro_bruto de todas las salas) + sum(precio_venta de items vendid
 |--------|-------------|---------|
 | 400 | Validacion fallida | Campos requeridos, rangos invalidos |
 | 401 | No autenticado | Token JWT invalido o expirado |
-| 403 | Sin permiso | Un "player" intentando crear expedicion |
+| 403 | Sin permiso | Un "player" intentando crear expedicion, Discord ID no autorizado |
 | 404 | No encontrado | Piso inexistente, participacion no existe |
-| 409 | Conflicto | Layout ya generado para ese piso, email duplicado |
+| 409 | Conflicto | Layout ya generado para ese piso, Discord ID duplicado |
 
 Formato estandar de error:
 ```json
