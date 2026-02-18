@@ -2,82 +2,124 @@ import { create } from 'zustand';
 import type { Expedicion, Participacion } from '../types/expedition';
 import type { HabitacionLayout, EncounterResponse, ProcesarRecompensasResponse } from '../types/gameplay';
 
+export type SetupStep = 'select_pisos' | 'configure_floor' | 'rooms_preview' | 'add_participants' | 'ready';
+
 export type GamePhase =
   | 'setup'
-  | 'floor_select'
-  | 'room_list'
-  | 'encounter'
-  | 'rewards'
-  | 'assign_items'
-  | 'distribute_gold'
-  | 'room_complete';
+  | 'playing'
+  | 'floor_complete'
+  | 'expedition_complete';
+
+export interface FloorConfig {
+  piso: number;
+  numSalas: number;
+  includeBonus: boolean;
+  includeEvento: boolean;
+}
+
+export interface RoomState {
+  habitacion: HabitacionLayout;
+  encounterResult: EncounterResponse | null;
+  rewardsResult: ProcesarRecompensasResponse | null;
+  encounterResolved: boolean;
+  rewardsResolved: boolean;
+  itemsAssigned: boolean;
+  goldDistributed: boolean;
+  completed: boolean;
+}
 
 interface ExpeditionState {
   activeExpedition: Expedicion | null;
   participants: Participacion[];
-  currentFloor: number | null;
-  habitaciones: HabitacionLayout[];
-  currentHabitacionIndex: number;
+
+  // Setup
+  setupStep: SetupStep;
+  selectedPisos: number[];
+  floorConfigs: FloorConfig[];
+  currentConfigIndex: number;
+
+  // Playing
   phase: GamePhase;
+  currentFloorIndex: number;
+  rooms: RoomState[];
+  expandedRoomIndex: number | null;
 
-  encounterResult: EncounterResponse | null;
-  rewardsResult: ProcesarRecompensasResponse | null;
-
+  // Actions - setup
   setActiveExpedition: (exp: Expedicion) => void;
   setParticipants: (parts: Participacion[]) => void;
-  setFloor: (floor: number, habitaciones: HabitacionLayout[]) => void;
+  setSetupStep: (step: SetupStep) => void;
+  setSelectedPisos: (pisos: number[]) => void;
+  setFloorConfigs: (configs: FloorConfig[]) => void;
+  setCurrentConfigIndex: (index: number) => void;
+
+  // Actions - playing
   setPhase: (phase: GamePhase) => void;
-  setCurrentHabitacionIndex: (index: number) => void;
-  setEncounterResult: (result: EncounterResponse | null) => void;
-  setRewardsResult: (result: ProcesarRecompensasResponse | null) => void;
-  markHabitacionCompleted: (index: number) => void;
-  nextHabitacion: () => void;
+  setCurrentFloorIndex: (index: number) => void;
+  setRooms: (rooms: RoomState[]) => void;
+  setExpandedRoom: (index: number | null) => void;
+  updateRoom: (index: number, updates: Partial<RoomState>) => void;
+  nextFloor: () => boolean;
+
   reset: () => void;
 }
 
 export const useExpeditionStore = create<ExpeditionState>((set, get) => ({
   activeExpedition: null,
   participants: [],
-  currentFloor: null,
-  habitaciones: [],
-  currentHabitacionIndex: 0,
+
+  setupStep: 'select_pisos',
+  selectedPisos: [],
+  floorConfigs: [],
+  currentConfigIndex: 0,
+
   phase: 'setup',
-  encounterResult: null,
-  rewardsResult: null,
+  currentFloorIndex: 0,
+  rooms: [],
+  expandedRoomIndex: null,
 
   setActiveExpedition: (exp) => set({ activeExpedition: exp }),
   setParticipants: (parts) => set({ participants: parts }),
-  setFloor: (floor, habitaciones) =>
-    set({ currentFloor: floor, habitaciones, currentHabitacionIndex: 0, phase: 'room_list' }),
+  setSetupStep: (step) => set({ setupStep: step }),
+  setSelectedPisos: (pisos) => set({ selectedPisos: pisos }),
+  setFloorConfigs: (configs) => set({ floorConfigs: configs }),
+  setCurrentConfigIndex: (index) => set({ currentConfigIndex: index }),
+
   setPhase: (phase) => set({ phase }),
-  setCurrentHabitacionIndex: (index) => set({ currentHabitacionIndex: index }),
-  setEncounterResult: (result) => set({ encounterResult: result }),
-  setRewardsResult: (result) => set({ rewardsResult: result }),
-  markHabitacionCompleted: (index) => {
-    const habitaciones = [...get().habitaciones];
-    if (habitaciones[index]) {
-      habitaciones[index] = { ...habitaciones[index], completada: true };
-      set({ habitaciones });
+  setCurrentFloorIndex: (index) => set({ currentFloorIndex: index }),
+  setRooms: (rooms) => set({ rooms }),
+  setExpandedRoom: (index) => set({ expandedRoomIndex: index }),
+  updateRoom: (index, updates) => {
+    const rooms = [...get().rooms];
+    if (rooms[index]) {
+      rooms[index] = { ...rooms[index], ...updates };
+      set({ rooms });
     }
   },
-  nextHabitacion: () => {
-    const { currentHabitacionIndex, habitaciones } = get();
-    const nextIndex = habitaciones.findIndex(
-      (h, i) => i > currentHabitacionIndex && !h.completada
-    );
-    if (nextIndex >= 0) {
-      set({ currentHabitacionIndex: nextIndex, phase: 'room_list', encounterResult: null, rewardsResult: null });
+  nextFloor: () => {
+    const { currentFloorIndex, floorConfigs } = get();
+    if (currentFloorIndex < floorConfigs.length - 1) {
+      set({
+        currentFloorIndex: currentFloorIndex + 1,
+        rooms: [],
+        expandedRoomIndex: null,
+      });
+      return true;
     }
+    set({ phase: 'expedition_complete' });
+    return false;
   },
+
   reset: () =>
     set({
       activeExpedition: null,
       participants: [],
-      currentFloor: null,
-      habitaciones: [],
-      currentHabitacionIndex: 0,
+      setupStep: 'select_pisos',
+      selectedPisos: [],
+      floorConfigs: [],
+      currentConfigIndex: 0,
       phase: 'setup',
-      encounterResult: null,
-      rewardsResult: null,
+      currentFloorIndex: 0,
+      rooms: [],
+      expandedRoomIndex: null,
     }),
 }));

@@ -5,7 +5,7 @@ import { jwtDecode } from 'jwt-decode';
 interface JwtPayload {
   discord_id: string;
   nombre: string;
-  rol: 'player' | 'dm' | 'admin';
+  rol: 'JUGADOR' | 'DM' | 'ADMIN';
   sub?: string;
 }
 
@@ -15,7 +15,7 @@ interface AuthState {
   user: {
     discord_id: string;
     nombre: string;
-    rol: 'player' | 'dm' | 'admin';
+    rol: 'JUGADOR' | 'DM' | 'ADMIN';
   } | null;
   isAuthenticated: boolean;
 
@@ -40,7 +40,7 @@ export const useAuthStore = create<AuthState>()(
             user: {
               discord_id: decoded.discord_id || decoded.sub || '',
               nombre: decoded.nombre || '',
-              rol: decoded.rol || 'player',
+              rol: decoded.rol || 'JUGADOR',
             },
             isAuthenticated: true,
           });

@@ -2,7 +2,7 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth.store';
 
 interface RequireRoleProps {
-  roles: Array<'player' | 'dm' | 'admin'>;
+  roles: Array<'JUGADOR' | 'DM' | 'ADMIN'>;
 }
 
 export function RequireRole({ roles }: RequireRoleProps) {

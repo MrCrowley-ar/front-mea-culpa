@@ -27,12 +27,14 @@ export function ExpeditionDetailPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Add participant
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [characterName, setCharacterName] = useState('');
   const [addingPlayer, setAddingPlayer] = useState(false);
 
-  const [selectedFloor, setSelectedFloor] = useState('');
+  // Multi-piso selection
+  const [selectedPisos, setSelectedPisos] = useState<number[]>([]);
   const [startingExpedition, setStartingExpedition] = useState(false);
 
   useEffect(() => {
@@ -85,16 +87,25 @@ export function ExpeditionDetailPage() {
     }
   };
 
+  const togglePiso = (pisoNum: number) => {
+    setSelectedPisos((prev) =>
+      prev.includes(pisoNum)
+        ? prev.filter((p) => p !== pisoNum)
+        : [...prev, pisoNum].sort((a, b) => a - b)
+    );
+  };
+
   const handleStartExpedition = async () => {
-    if (!id || !selectedFloor) return;
+    if (!id || selectedPisos.length === 0) return;
     setStartingExpedition(true);
     try {
       await expeditionService.update(parseInt(id), {
         estado: 'en_curso',
-        piso_actual: parseInt(selectedFloor),
+        piso_actual: selectedPisos[0],
       });
       addToast('Expedicion iniciada!', 'success');
-      navigate(`/expeditions/${id}/play`);
+      const pisosParam = selectedPisos.join(',');
+      navigate(`/expeditions/${id}/play?pisos=${pisosParam}`);
     } catch {
       addToast('Error al iniciar expedicion', 'error');
     } finally {
@@ -124,9 +135,13 @@ export function ExpeditionDetailPage() {
   const canStart =
     expedition.estado === 'pendiente' &&
     participants.length > 0 &&
-    selectedFloor !== '';
+    selectedPisos.length > 0;
 
-  const selectedPiso = pisos.find((p) => p.numero === parseInt(selectedFloor));
+  const pisosByTier = pisos.reduce<Record<number, Piso[]>>((acc, p) => {
+    if (!acc[p.tier_numero]) acc[p.tier_numero] = [];
+    acc[p.tier_numero].push(p);
+    return acc;
+  }, {});
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -222,40 +237,66 @@ export function ExpeditionDetailPage() {
         )}
       </section>
 
-      {/* Floor selection & Start (only for pending) */}
+      {/* Multi-piso selection (only for pending) */}
       {expedition.estado === 'pendiente' && (
         <Card>
           <h3 className="text-sm font-medium text-stone-300 mb-3">
-            Seleccionar Piso
+            Seleccionar Pisos para la Expedicion
           </h3>
-          <div className="flex items-end gap-4">
-            <div className="flex-1">
-              <Select
-                label="Piso"
-                placeholder="Elige un piso..."
-                value={selectedFloor}
-                onChange={(e) => setSelectedFloor(e.target.value)}
-                options={pisos.map((p) => ({
-                  value: p.numero,
-                  label: `Piso ${p.numero} — Tier ${p.tier_numero} (${TIER_LABELS[p.tier_numero]}) — Bonus +${p.bonus_recompensa}`,
-                }))}
-              />
+          <p className="text-xs text-stone-500 mb-4">
+            Elige uno o mas pisos. Se jugaran en orden ascendente.
+          </p>
+
+          <div className="space-y-4">
+            {Object.entries(pisosByTier).map(([tierNum, tierPisos]) => (
+              <div key={tierNum}>
+                <p className="text-xs text-stone-400 mb-2 font-medium uppercase tracking-wider">
+                  Tier {tierNum} — {TIER_LABELS[parseInt(tierNum)]}
+                </p>
+                <div className="flex gap-2 flex-wrap">
+                  {tierPisos.map((p) => {
+                    const isSelected = selectedPisos.includes(p.numero);
+                    return (
+                      <button
+                        key={p.numero}
+                        onClick={() => togglePiso(p.numero)}
+                        className={`px-3 py-2 rounded border text-sm font-mono transition-all ${
+                          isSelected
+                            ? 'border-amber-500 bg-amber-600/20 text-amber-300 ring-1 ring-amber-500/30'
+                            : 'border-[var(--color-dungeon-border)] text-stone-400 hover:text-stone-200 hover:border-stone-500'
+                        }`}
+                      >
+                        {p.numero}
+                        <span className="text-[10px] block text-stone-500">
+                          +{p.bonus_recompensa}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {selectedPisos.length > 0 && (
+            <div className="mt-4 p-3 rounded bg-[var(--color-dungeon)] border border-[var(--color-dungeon-border)]">
+              <p className="text-xs text-stone-400 mb-1">Pisos seleccionados:</p>
+              <p className="text-stone-200 text-sm font-mono">
+                {selectedPisos.join(' → ')}
+              </p>
             </div>
+          )}
+
+          <div className="mt-4">
             <Button
               onClick={handleStartExpedition}
               disabled={!canStart}
               loading={startingExpedition}
+              size="lg"
             >
-              Iniciar Expedicion
+              Iniciar Expedicion ({selectedPisos.length} piso{selectedPisos.length !== 1 ? 's' : ''})
             </Button>
           </div>
-          {selectedPiso && (
-            <p className="text-xs text-stone-500 mt-2">
-              Tier {selectedPiso.tier_numero} &middot; Bonus recompensa: +
-              {selectedPiso.bonus_recompensa} &middot;{' '}
-              {selectedPiso.num_habitaciones_comunes} salas comunes
-            </p>
-          )}
         </Card>
       )}
 

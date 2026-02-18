@@ -118,10 +118,15 @@ export function SummaryPage() {
               <div>
                 <p className="text-stone-200 font-medium">{part.nombre_personaje}</p>
                 <p className="text-xs text-stone-500">
-                  Oro bruto: {part.total_oro_bruto}g &middot; Ventas:{' '}
-                  {part.total_oro_ventas}g &middot;{' '}
+                  Oro expedicion: {part.total_oro_bruto}g
+                  {part.total_oro_ventas > 0 && <> + Ventas: {part.total_oro_ventas}g</>}
+                  {' '}&middot;{' '}
                   <span className="text-amber-400 font-medium">
                     Total: {part.total_oro}g
+                  </span>
+                  {' '}&middot;{' '}
+                  <span className="text-stone-400">
+                    Acumulado: {part.oro_acumulado_actual}g
                   </span>
                 </p>
               </div>

@@ -6,14 +6,14 @@ interface NavItem {
   to: string;
   label: string;
   icon: string;
-  roles?: Array<'player' | 'dm' | 'admin'>;
+  roles?: Array<'JUGADOR' | 'DM' | 'ADMIN'>;
 }
 
 const navItems: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', icon: '🏠' },
   { to: '/expeditions', label: 'Expediciones', icon: '⚔️' },
   { to: '/history', label: 'Historial', icon: '📜' },
-  { to: '/config', label: 'Configuracion', icon: '⚙️', roles: ['dm', 'admin'] },
+  { to: '/config', label: 'Configuracion', icon: '⚙️', roles: ['DM', 'ADMIN'] },
 ];
 
 interface SidebarProps {

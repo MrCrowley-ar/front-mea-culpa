@@ -40,7 +40,7 @@ const router = createBrowserRouter([
           { path: 'history', element: <HistoryPage /> },
           { path: 'history/:expeditionId', element: <ExpeditionHistoryPage /> },
           {
-            element: <RequireRole roles={['dm', 'admin']} />,
+            element: <RequireRole roles={['DM', 'ADMIN']} />,
             children: [
               { path: 'config', element: <ConfigPage /> },
             ],

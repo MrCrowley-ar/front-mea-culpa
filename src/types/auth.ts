@@ -17,6 +17,6 @@ export interface AuthResponse {
 export interface User {
   discord_id: string;
   nombre: string;
-  rol: 'player' | 'dm' | 'admin';
+  rol: 'JUGADOR' | 'DM' | 'ADMIN';
   created_at: string;
 }
