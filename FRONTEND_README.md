@@ -18,23 +18,57 @@ Los **jugadores** participan via Discord. Solo el DM interactua con la web.
 
 ## 2. Roles y Autenticacion
 
-### Roles del sistema
+### Roles del sistema (multi-rol)
 
-| Rol | Acceso |
-|-----|--------|
-| `player` | Solo puede loguearse. No accede a ninguna gestion |
-| `dm` | Acceso completo a crear/gestionar expediciones y gameplay |
-| `admin` | Igual que DM (acceso completo) |
+Un usuario puede tener **multiples roles simultaneamente**. Los roles son acumulativos.
 
-### Flujo de auth
+| Rol | Quien es | Se puede loguear | Que puede hacer |
+|-----|----------|:----------------:|-----------------|
+| `player` | Jugador registrado por un DM | No (no tiene password) | Participar en expediciones con sus personajes |
+| `dm` | Dungeon Master | Si | Crear/gestionar expediciones, gameplay, agregar jugadores |
+| `admin` | Administrador | Si | Todo lo del DM + CRUD items, promover a DM, whitelist |
 
-1. El usuario se registra con su `discord_id`, nombre, email y password
-2. Recibe un `access_token` (JWT) y un `refresh_token`
-3. Todas las llamadas al backend llevan el header `Authorization: Bearer <access_token>`
-4. Cuando el token expira, se renueva con el `refresh_token`
+> **Multi-rol:** Un usuario puede ser `player` + `dm` a la vez. Si un jugador es promovido a DM,
+> conserva su rol `player` y se le agrega `dm`. Un admin tambien puede ser `player` + `dm` + `admin`.
+> El JWT contiene `roles: string[]` (array, no string singular).
 
-> **Para el front:** Guardar ambos tokens. Interceptar 401 y hacer refresh automatico.
+### Flujo de registro (solo DMs)
+
+1. Un ADMIN agrega el `discord_id` del futuro DM a la whitelist (`allowed_discord_ids`)
+2. El usuario se registra con su `discord_id`, nombre y password
+3. El sistema verifica que el `discord_id` este en la whitelist
+4. Si pasa → se crea la cuenta con rol `DM` automaticamente
+5. Recibe `access_token` (JWT) y `refresh_token`
+
+**Caso especial - jugador promovido a DM:**
+- Si el usuario ya existia como `player` (sin password, agregado por otro DM)
+- Y un ADMIN agrego su `discord_id` a la whitelist
+- Al registrarse, su cuenta se actualiza: se le asigna password y se le agrega el rol `DM` (conserva `player`)
+
+### Flujo de login
+
+1. El usuario envia `discord_id` + `password`
+2. El sistema verifica que el `discord_id` siga en la whitelist
+3. Si pasa → verifica password y genera tokens
+4. Si el Discord ID fue removido de la whitelist → 403 (no puede loguearse)
+
+> **Para el front:** Solo DMs y ADMINs pueden loguearse. Los players NO tienen password.
+> Guardar ambos tokens. Interceptar 401 y hacer refresh automatico.
 > El `discord_id` es un string de hasta 32 caracteres (ej: "123456789012345678").
+
+### Flujo de jugadores (players)
+
+1. Un DM o ADMIN agrega un jugador via `POST /api/usuarios/jugadores`
+2. Solo se necesita `discord_id` y `nombre` (sin password)
+3. El jugador queda registrado con rol `player` y puede ser agregado a expediciones
+4. Los jugadores NO se loguean en la web, participan via Discord
+
+### Flujo de promocion (player → DM)
+
+1. Un ADMIN usa `POST /api/usuarios/promover-dm` con el `discord_id` del jugador
+2. Esto agrega su ID a la whitelist (`allowed_discord_ids`)
+3. El jugador ahora puede registrarse en la web (`POST /auth/register`)
+4. Al registrarse, configura su password y se le agrega el rol `DM` (conserva rol `player`)
 
 ---
 
@@ -178,9 +212,31 @@ Entonces un piso tipico tiene: **4 comunes + [bonus] + [evento] + 1 jefe**
 
 ### 5.1 Login / Registro
 
-- Formulario de login (email + password)
-- Formulario de registro (discord_id, nombre, email, password)
+- Formulario de login (discord_id + password) - solo DMs/ADMINs
+- Formulario de registro (discord_id, nombre, password) - solo si el ID esta en whitelist
 - Guardar tokens en localStorage/sessionStorage
+- Mostrar error claro si el Discord ID no esta autorizado (403)
+- Despues del login, redirigir segun rol:
+  - `dm` → Dashboard de expediciones
+  - `admin` → Dashboard de expediciones + acceso a panel de admin
+
+### 5.1b Panel de Administracion (solo ADMIN)
+
+- **Gestion de jugadores:**
+  - Lista de todos los jugadores (rol `player`)
+  - Boton "Promover a DM" por jugador → agrega a whitelist
+- **Whitelist de Discord IDs:**
+  - Lista de IDs permitidos con nota
+  - Boton "Agregar" y "Eliminar"
+- **Gestion de items:**
+  - CRUD completo de items (crear, editar, eliminar)
+  - Solo visible para ADMIN
+
+### 5.1c Gestion de Jugadores (DM y ADMIN)
+
+- Lista de jugadores registrados
+- Formulario "Agregar Jugador" (discord_id + nombre)
+- Los jugadores agregados aqui pueden ser seleccionados al crear participaciones en expediciones
 
 ### 5.2 Dashboard / Lista de Expediciones
 
@@ -285,8 +341,38 @@ Esta es la pantalla principal de juego. Debe mostrar:
 ```
 discord_id: string (PK, el ID de Discord)
 nombre: string
-email: string
+password_hash: string | null (null para players, tiene valor para DMs/ADMINs)
+roles: string[] (array de roles: "player", "dm", "admin" - un usuario puede tener varios)
+created_at: Date
+```
+
+> **Nota:** Los roles se almacenan en tabla separada `usuario_roles` (many-to-many).
+> El response de la API devuelve `roles: ["player", "dm"]` como array.
+> Los players NO tienen password. Solo DMs y ADMINs pueden loguearse.
+
+#### UsuarioRol (tabla intermedia)
+```
+id: number (PK, auto)
+usuario_id: string (FK → Usuario.discord_id)
 rol: "player" | "dm" | "admin"
+UNIQUE(usuario_id, rol)
+```
+
+#### Personaje (personajes de cada jugador)
+```
+id: number (PK, auto)
+usuario_id: string (FK → Usuario.discord_id)
+nombre: string (ej: "Aldric el Guerrero")
+created_at: Date
+```
+
+> **Nota:** Cada jugador puede tener multiples personajes. Al crear una participacion
+> en una expedicion, se elige un personaje_id especifico (no se escribe el nombre a mano).
+
+#### AllowedDiscordId (whitelist de IDs autorizados para registrarse)
+```
+discord_id: string (PK)
+nota: string | null (nota descriptiva, ej: "Jugador principal")
 created_at: Date
 ```
 
@@ -307,7 +393,7 @@ updated_at: Date
 id: number (PK, auto)
 expedicion_id: number (FK → Expedicion)
 usuario_id: string (FK → Usuario.discord_id)
-nombre_personaje: string (ej: "Aldric el Guerrero")
+personaje_id: number (FK → Personaje.id)
 oro_acumulado: number (se actualiza al liquidar)
 activo: boolean (true = participa, false = se fue)
 sala_salida: number | null (en que sala se fue, null si sigue activo)
@@ -315,6 +401,8 @@ created_at: Date
 ```
 
 > **Constraint:** Un usuario solo puede participar UNA vez por expedicion (unique: expedicion_id + usuario_id)
+> **Nota:** Al agregar participante ahora se envia `personaje_id` en vez de `nombre_personaje`.
+> El response incluye `nombre_personaje` (extraido de la relacion con Personaje).
 
 #### Piso (precargado en DB, 20 registros)
 ```
@@ -415,15 +503,62 @@ Esto es lo que pasa cuando el DM tira 1d20 para una recompensa:
 
 ### Subtablas disponibles
 
-| Subtabla | Varia por piso | Varia por habitacion | Aplica mod tier |
-|----------|:--------------:|:--------------------:|:--------------:|
-| `armas` | No | No | Si (+armas) |
-| `armaduras` | No | No | Si (+armaduras) |
-| `objetos_curiosos` | Si | Si | No |
-| `items_boss` | Si | No | No |
-| `pociones` | Opcional | No | No |
-| `tesoro_menor` | Opcional | No | No |
-| `critico` | Opcional | No | No |
+| Subtabla | Varia por piso | Varia por habitacion | Aplica mod tier | Tirada subtabla |
+|----------|:--------------:|:--------------------:|:--------------:|:---------------:|
+| `armas` | No | No | Si (+armas) | Si (d20) |
+| `armaduras` | No | No | Si (+armaduras) | Si (d20) |
+| `objetos_curiosos` | Si | Si | No | Si (d20) |
+| `items_boss` | Si | No | No | Si (d20) |
+| `pociones` | Opcional | No | No | Si (d20) |
+| `tesoro_menor` | Opcional | No | No | Si (d20) |
+| `critico` | Opcional | No | No | Si (d20) |
+| `especial` | Si (por tier) | No | No | **No** (al azar) |
+| `botin_alternativo` | Si | Si | No | Si (d20) |
+
+### Subtabla `especial` (seleccion al azar)
+
+Algunas entradas de recompensa apuntan a `subtabla_nombre = 'especial'`. Estas NO requieren
+una segunda tirada. En vez de eso, el sistema **elige un item al azar** de una lista de opciones
+vinculadas a esa entrada.
+
+**Como funciona:**
+
+1. La tirada principal cae en una fila con `subtabla_nombre = 'especial'`
+2. El sistema busca en la tabla `opciones_especiales` todas las opciones para esa entrada
+3. Elige una al azar
+4. Devuelve el **item real** (con `item_id` y `item_nombre`) directamente
+
+**Ejemplo:** Si cae en "Equipo raro 1d4: Pergamino/Mapa/Gemas/Repite", el sistema tiene
+3 opciones registradas (Pergamino, Mapa del dungeon, Gemas varias) y elige una al azar.
+
+> **Para el front:** Cuando `subtabla_nombre = 'especial'`, NO se necesita segunda tirada.
+> El endpoint devuelve el item directamente. El campo `requiere_subtabla` sera `false`.
+> El front puede mostrar el resultado inmediatamente sin pedir tirada adicional.
+
+**Opciones especiales por tier:**
+
+| Tier 1 (Pisos 1-4) | Items posibles |
+|---------------------|----------------|
+| Tirada 17: Pocion de fortuna | Pocion de fortuna |
+| Tirada 18: Saco de raciones | Saco de raciones |
+| Tirada 19: Equipo raro | Pergamino viejo / Mapa del dungeon / Gemas varias |
+| Tirada 20: Objeto magico menor | Piedra luminosa / Anillo +1 (menor) / Amuleto chispa (menor) |
+
+| Tier 2 (Pisos 5-7) | Items posibles |
+|---------------------|----------------|
+| Tirada 16: Aleacion Tier 1 | Aleacion Tier 1 |
+| Tirada 17: Ventaja dungeon | Mapa del dungeon / Pergamino viejo / Obsidiana Roja |
+| Tirada 18: Racion magica grupal | Racion magica grupal |
+| Tirada 19: Bomba | Bomba |
+
+### Subtabla `botin_alternativo`
+
+Cuando `subtabla_nombre = 'botin_alternativo'`, el sistema busca en la tabla `objetos_curiosos`
+(la misma que usa `objetos_curiosos`). Funciona igual: requiere una segunda tirada (d20)
+y devuelve un item de la tabla de objetos curiosos para ese piso y tipo de habitacion.
+
+> **Para el front:** Tratar `botin_alternativo` igual que cualquier otra subtabla que requiere
+> segunda tirada. El campo `requiere_subtabla` sera `true` si no se provee la tirada de subtabla.
 
 ---
 
@@ -495,11 +630,29 @@ oro_total = sum(oro_bruto de todas las salas) + sum(precio_venta de items vendid
 ### Base URL: `http://localhost:3000/api`
 
 ### Autenticacion
-| Metodo | Ruta | Que hace |
-|--------|------|----------|
-| POST | `/auth/register` | Registrar usuario |
-| POST | `/auth/login` | Login |
-| POST | `/auth/refresh` | Renovar token |
+| Metodo | Ruta | Que hace | Rol requerido |
+|--------|------|----------|---------------|
+| POST | `/auth/register` | Registrar DM (discord_id debe estar en whitelist) | Publico |
+| POST | `/auth/login` | Login (solo DMs/ADMINs con password) | Publico |
+| POST | `/auth/refresh` | Renovar token | Publico |
+
+### Usuarios y Jugadores
+| Metodo | Ruta | Que hace | Rol requerido |
+|--------|------|----------|---------------|
+| GET | `/usuarios` | Listar todos los usuarios | DM, ADMIN |
+| GET | `/usuarios/jugadores` | Listar solo jugadores (rol player) | DM, ADMIN |
+| POST | `/usuarios/jugadores` | Agregar jugador (discord_id + nombre, sin password) | DM, ADMIN |
+| GET | `/usuarios/:discordId` | Detalle de un usuario | DM, ADMIN |
+| POST | `/usuarios/promover-dm` | Agregar discord_id a whitelist (promover a DM) | ADMIN |
+| GET | `/usuarios/allowed` | Listar whitelist de IDs permitidos | ADMIN |
+| DELETE | `/usuarios/allowed/:discordId` | Eliminar de whitelist | ADMIN |
+
+### Personajes
+| Metodo | Ruta | Que hace | Rol requerido |
+|--------|------|----------|---------------|
+| GET | `/usuarios/:discordId/personajes` | Listar personajes de un usuario | DM, ADMIN |
+| POST | `/usuarios/:discordId/personajes` | Crear personaje para un usuario | DM, ADMIN |
+| DELETE | `/usuarios/personajes/:personajeId` | Eliminar personaje | DM, ADMIN |
 
 ### Expediciones
 | Metodo | Ruta | Que hace |
@@ -540,13 +693,17 @@ oro_total = sum(oro_bruto de todas las salas) + sum(precio_venta de items vendid
 | POST | `/gameplay/resolver-recompensa` | Resolver recompensa individual |
 | POST | `/gameplay/repartir-oro` | Repartir oro entre IDs especificos |
 
-### Configuracion (solo lectura para el front)
-| Metodo | Ruta | Que hace |
-|--------|------|----------|
-| GET | `/configuracion/tiers` | Lista tiers |
-| GET | `/configuracion/pisos` | Lista pisos con bonus y tier |
-| GET | `/configuracion/tipos-habitacion` | Lista tipos de sala |
-| GET | `/configuracion/items` | Lista items |
+### Configuracion
+| Metodo | Ruta | Que hace | Rol requerido |
+|--------|------|----------|---------------|
+| GET | `/configuracion/tiers` | Lista tiers | DM, ADMIN |
+| GET | `/configuracion/pisos` | Lista pisos con bonus y tier | DM, ADMIN |
+| GET | `/configuracion/tipos-habitacion` | Lista tipos de sala | DM, ADMIN |
+| GET | `/configuracion/items` | Lista items | DM, ADMIN |
+| GET | `/configuracion/items/:id` | Detalle de un item | DM, ADMIN |
+| POST | `/configuracion/items` | Crear item | ADMIN |
+| PUT | `/configuracion/items/:id` | Actualizar item | ADMIN |
+| DELETE | `/configuracion/items/:id` | Eliminar item | ADMIN |
 
 ### Historial (bajo nivel, no necesario si se usa el flujo integrado)
 | Metodo | Ruta | Que hace |
@@ -672,9 +829,9 @@ oro_total = sum(oro_bruto de todas las salas) + sum(precio_venta de items vendid
 |--------|-------------|---------|
 | 400 | Validacion fallida | Campos requeridos, rangos invalidos |
 | 401 | No autenticado | Token JWT invalido o expirado |
-| 403 | Sin permiso | Un "player" intentando crear expedicion |
+| 403 | Sin permiso | Un "player" intentando crear expedicion, Discord ID no autorizado |
 | 404 | No encontrado | Piso inexistente, participacion no existe |
-| 409 | Conflicto | Layout ya generado para ese piso, email duplicado |
+| 409 | Conflicto | Layout ya generado para ese piso, Discord ID duplicado |
 
 Formato estandar de error:
 ```json
@@ -692,7 +849,7 @@ Formato estandar de error:
 ### Estado global sugerido
 
 ```
-- usuario: { discord_id, nombre, rol, tokens }
+- usuario: { discord_id, nombre, roles[], tokens }
 - expedicionActual: { id, estado, piso_actual, participantes[] }
 - pisoActual: { numero, habitaciones[], participantesActivos[] }
 - salaActual: { id, tipo, encuentro, recompensas, completada }
@@ -719,3 +876,142 @@ Formato estandar de error:
    - Llamar `asignar-item` por cada item
    - Llamar `repartir-oro-habitacion` con el total de oro tirado
 5. **Un jugador que se va no puede volver.** Pero puede entrar un reemplazante como nueva participacion.
+
+---
+
+## 14. Diferenciacion de Vistas por Rol
+
+### Vista DM (rol `dm`)
+
+El DM ve y puede hacer:
+
+| Seccion | Acceso |
+|---------|--------|
+| Login/Registro | Si |
+| Dashboard expediciones | Ver todas, crear, editar, eliminar |
+| Gameplay (pisos, salas, encuentros) | Acceso completo |
+| Gestion de jugadores | Agregar jugadores (discord_id + nombre) |
+| Lista de participantes | Agregar/quitar de expediciones |
+| Configuracion (lectura) | Ver tiers, pisos, items, tipos habitacion |
+| Configuracion (escritura) | NO puede crear/editar/eliminar items |
+| Panel de admin | NO visible |
+
+### Vista ADMIN (rol `admin`)
+
+El ADMIN tiene todo lo del DM mas:
+
+| Seccion | Acceso |
+|---------|--------|
+| Panel de administracion | Visible y accesible |
+| Whitelist de Discord IDs | CRUD completo (agregar/eliminar IDs permitidos) |
+| Promover jugador a DM | Agregar discord_id a whitelist |
+| CRUD de items | Crear, editar, eliminar items y descripciones |
+
+### Implementacion sugerida en el front
+
+```
+1. Al hacer login, guardar `roles[]` del JWT payload
+2. Usar los roles para:
+   - Mostrar/ocultar el menu de admin → roles.includes('admin')
+   - Habilitar/deshabilitar botones de CRUD de items → roles.includes('admin')
+   - Mostrar/ocultar el boton "Promover a DM" → roles.includes('admin')
+   - Mostrar/ocultar la gestion de whitelist → roles.includes('admin')
+3. Rutas protegidas:
+   - /admin/* → solo si roles.includes('admin')
+   - /expediciones/* → si roles.includes('dm') || roles.includes('admin')
+   - /login, /register → publico
+```
+
+### Navegacion sugerida
+
+```
+DM:
+├── /login
+├── /dashboard (expediciones)
+├── /expediciones/:id (detalle)
+├── /expediciones/:id/piso (gameplay)
+├── /jugadores (lista + agregar)
+└── /configuracion (solo lectura)
+
+ADMIN (agrega a lo del DM):
+├── /admin/items (CRUD de items)
+├── /admin/whitelist (gestion de IDs permitidos)
+└── /admin/promover (promover jugador a DM)
+```
+
+### Body de los nuevos endpoints
+
+**POST `/api/usuarios/jugadores`** (DM/ADMIN)
+```json
+{
+  "discord_id": "123456789012345678",
+  "nombre": "NombreJugador"
+}
+```
+Respuesta:
+```json
+{
+  "discord_id": "123456789012345678",
+  "nombre": "NombreJugador",
+  "roles": ["player"],
+  "created_at": "2025-01-01T00:00:00.000Z"
+}
+```
+
+**POST `/api/usuarios/:discordId/personajes`** (DM/ADMIN)
+```json
+{
+  "nombre": "Aldric el Guerrero"
+}
+```
+Respuesta:
+```json
+{
+  "id": 1,
+  "usuario_id": "123456789012345678",
+  "nombre": "Aldric el Guerrero",
+  "created_at": "2025-01-01T00:00:00.000Z"
+}
+```
+
+**POST `/api/expediciones/:id/participaciones`** (DM/ADMIN)
+```json
+{
+  "usuario_id": "123456789012345678",
+  "personaje_id": 1
+}
+```
+
+**POST `/api/usuarios/promover-dm`** (ADMIN)
+```json
+{
+  "discord_id": "123456789012345678",
+  "nota": "Promovido por buen desempeno"
+}
+```
+Respuesta:
+```json
+{
+  "message": "Discord ID 123456789012345678 agregado a la lista de permitidos. El jugador puede registrarse como DM."
+}
+```
+
+**POST `/api/configuracion/items`** (ADMIN)
+```json
+{
+  "nombre": "Espada de fuego",
+  "tipo": "arma",
+  "precio_base": 100,
+  "descripcion": "Una espada envuelta en llamas",
+  "es_base_modificable": true
+}
+```
+
+**PUT `/api/configuracion/items/:id`** (ADMIN)
+```json
+{
+  "nombre": "Espada de fuego mejorada",
+  "descripcion": "Una espada envuelta en llamas azules",
+  "precio_base": 150
+}
+```
