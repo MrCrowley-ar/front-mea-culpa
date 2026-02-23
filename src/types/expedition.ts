@@ -37,5 +37,5 @@ export interface Participacion {
 
 export interface CreateParticipacionDto {
   usuario_id: string;
-  nombre_personaje: string;
+  personaje_id: number;
 }

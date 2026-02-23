@@ -20,3 +20,10 @@ export interface User {
   rol: 'JUGADOR' | 'DM' | 'ADMIN';
   created_at: string;
 }
+
+export interface Personaje {
+  id: number;
+  usuario_id: string;
+  nombre: string;
+  created_at: string;
+}
