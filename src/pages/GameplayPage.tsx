@@ -12,7 +12,7 @@ import { useExpeditionStore, type RoomState } from '../stores/expedition.store';
 import { useToastStore } from '../stores/toast.store';
 import { rollD20, rollDice } from '../lib/dice';
 import { ROOM_TYPE_ICONS, ROOM_TYPE_COLORS, TIER_LABELS } from '../config/constants';
-import type { Piso } from '../types/config';
+import type { Piso, Item } from '../types/config';
 import type {
   EncounterResponse,
   ProcesarRecompensasResponse,
@@ -58,6 +58,13 @@ export function GameplayPage() {
   const [roomGoldResults, setRoomGoldResults] = useState<Record<number, RepartoOro[]>>({});
   const [expandedRoomIndex, setExpandedRoomIndex] = useState<number | null>(null);
 
+  // Config items for precio_base lookup
+  const [configItems, setConfigItems] = useState<Item[]>([]);
+  // Items marked for sale (per room, list of item.indice values)
+  const [roomItemsForSale, setRoomItemsForSale] = useState<Record<number, number[]>>({});
+  // Gate localStorage saving until after initial load
+  const [initialized, setInitialized] = useState(false);
+
   // Loading states
   const [rewardsLoading, setRewardsLoading] = useState<number | null>(null);
   const [assigningItems, setAssigningItems] = useState<number | null>(null);
@@ -79,11 +86,13 @@ export function GameplayPage() {
       expeditionService.getById(expedId),
       expeditionService.getParticipaciones(expedId),
       configService.getPisos(),
+      configService.getItems(),
     ])
-      .then(([exp, parts, pisosData]) => {
+      .then(([exp, parts, pisosData, itemsData]) => {
         store.setActiveExpedition(exp);
         store.setParticipants(parts);
         setPisos(pisosData);
+        setConfigItems(itemsData);
 
         if (exp.estado !== 'en_curso') {
           navigate(`/expeditions/${id}`);
@@ -101,12 +110,56 @@ export function GameplayPage() {
             includeEvento: false,
           }))
         );
+
+        // Restore gameplay state from localStorage
+        try {
+          const saved = localStorage.getItem(`mea-culpa-gameplay-${expedId}`);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed.rooms?.length > 0) {
+              store.setRooms(parsed.rooms);
+              setSetupPhase(parsed.setupPhase || 'configure_floor');
+              setRoomRewardTiradas(parsed.roomRewardTiradas || {});
+              setRoomPendingSubtablas(parsed.roomPendingSubtablas || {});
+              setRoomItemAssignments(parsed.roomItemAssignments || {});
+              setRoomItemsForSale(parsed.roomItemsForSale || {});
+              setRoomGoldTotals(parsed.roomGoldTotals || {});
+              setRoomGoldResults(parsed.roomGoldResults || {});
+            }
+          }
+        } catch {
+          // Ignore corrupt saved state
+        }
       })
       .catch(() => addToast('Error al cargar la expedicion', 'error'))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setInitialized(true);
+      });
 
     return () => store.reset();
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist gameplay state to localStorage whenever it changes
+  useEffect(() => {
+    if (!initialized || !id) return;
+    const key = `mea-culpa-gameplay-${id}`;
+    const state = {
+      setupPhase,
+      rooms: store.rooms,
+      roomRewardTiradas,
+      roomPendingSubtablas,
+      roomItemAssignments,
+      roomItemsForSale,
+      roomGoldTotals,
+      roomGoldResults,
+    };
+    try {
+      localStorage.setItem(key, JSON.stringify(state));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [initialized, id, setupPhase, store.rooms, roomRewardTiradas, roomPendingSubtablas, roomItemAssignments, roomItemsForSale, roomGoldTotals, roomGoldResults]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const currentFloorConfig = store.floorConfigs[store.currentFloorIndex];
   const currentPiso = pisos.find((p) => p.numero === currentFloorConfig?.piso);
@@ -263,18 +316,41 @@ export function GameplayPage() {
     [store, roomRewardTiradas, addToast]
   );
 
+  const handleMarkItemForSale = useCallback((roomIndex: number, itemIndice: number) => {
+    setRoomItemsForSale((prev) => {
+      const current = prev[roomIndex] || [];
+      const isForSale = current.includes(itemIndice);
+      const updated = isForSale
+        ? current.filter((i) => i !== itemIndice)
+        : [...current, itemIndice];
+      return { ...prev, [roomIndex]: updated };
+    });
+    // Un-assign from any participant if marking for sale
+    setRoomItemAssignments((prev) => {
+      const current = prev[roomIndex] || {};
+      if (current[itemIndice] != null) {
+        const updated = { ...current };
+        delete updated[itemIndice];
+        return { ...prev, [roomIndex]: updated };
+      }
+      return prev;
+    });
+  }, []);
+
   const handleAssignItems = useCallback(
     async (roomIndex: number) => {
       const room = store.rooms[roomIndex];
       if (!room?.rewardsResult) return;
 
       const assignments = roomItemAssignments[roomIndex] || {};
+      const forSale = roomItemsForSale[roomIndex] || [];
       setAssigningItems(roomIndex);
       try {
         for (const item of room.rewardsResult.items_pendientes) {
+          if (forSale.includes(item.indice)) continue; // skip — marked for sale
           const participacionId = assignments[item.indice];
           if (!participacionId) {
-            addToast(`Asigna "${item.item_nombre}" a un jugador`, 'error');
+            addToast(`Asigna "${item.item_nombre}" a un jugador o marca para vender`, 'error');
             setAssigningItems(null);
             return;
           }
@@ -295,7 +371,7 @@ export function GameplayPage() {
         setAssigningItems(null);
       }
     },
-    [store, roomItemAssignments, addToast]
+    [store, roomItemAssignments, roomItemsForSale, addToast]
   );
 
   const handleDistributeGold = useCallback(
@@ -353,6 +429,7 @@ export function GameplayPage() {
     setIncludeEvento(false);
     setRoomRewardTiradas({});
     setRoomItemAssignments({});
+    setRoomItemsForSale({});
     setRoomGoldTotals({});
     setRoomGoldResults({});
     setExpandedRoomIndex(null);
@@ -369,6 +446,7 @@ export function GameplayPage() {
       return;
     try {
       await expeditionService.update(store.activeExpedition.id, { estado: 'completada' });
+      localStorage.removeItem(`mea-culpa-gameplay-${id}`);
       addToast('Expedicion completada!', 'success');
       navigate(`/expeditions/${id}/summary`);
     } catch {
@@ -449,6 +527,12 @@ export function GameplayPage() {
         ...prev,
         [roomIndex]: { ...(prev[roomIndex] || {}), [itemIndex]: participantId },
       }));
+      // Un-mark as for sale if it was
+      setRoomItemsForSale((prev) => {
+        const current = prev[roomIndex] || [];
+        if (!current.includes(itemIndex)) return prev;
+        return { ...prev, [roomIndex]: current.filter((i) => i !== itemIndex) };
+      });
       draggingItem.current = null;
     }
   };
@@ -627,8 +711,10 @@ export function GameplayPage() {
                 rewardTiradas={roomRewardTiradas[roomIndex] || []}
                 pendingSubtablas={roomPendingSubtablas[roomIndex] || []}
                 itemAssignments={roomItemAssignments[roomIndex] || {}}
+                itemsForSale={roomItemsForSale[roomIndex] || []}
                 goldTotal={roomGoldTotals[roomIndex] || ''}
                 goldResults={roomGoldResults[roomIndex] || []}
+                configItems={configItems}
                 onUpdateRewardTirada={(i, field, value) => {
                   setRoomRewardTiradas((prev) => {
                     const tiradas = [...(prev[roomIndex] || [])];
@@ -638,6 +724,7 @@ export function GameplayPage() {
                 }}
                 onProcessRewards={() => handleProcessRewards(roomIndex)}
                 onItemDragStart={(itemIndex) => handleItemDragStart(roomIndex, itemIndex)}
+                onMarkItemForSale={(itemIndex) => handleMarkItemForSale(roomIndex, itemIndex)}
                 onConfirmAssignments={() => handleAssignItems(roomIndex)}
                 onGoldTotalChange={(val) =>
                   setRoomGoldTotals((prev) => ({ ...prev, [roomIndex]: val }))
@@ -821,11 +908,14 @@ interface RoomCardProps {
   rewardTiradas: Array<{ d20: string; subtabla: string }>;
   pendingSubtablas: boolean[];
   itemAssignments: Record<number, number>;
+  itemsForSale: number[];
   goldTotal: string;
   goldResults: RepartoOro[];
+  configItems: Item[];
   onUpdateRewardTirada: (i: number, field: 'd20' | 'subtabla', value: string) => void;
   onProcessRewards: () => void;
   onItemDragStart: (itemIndex: number) => void;
+  onMarkItemForSale: (itemIndex: number) => void;
   onConfirmAssignments: () => void;
   onGoldTotalChange: (val: string) => void;
   onRollGoldDice: () => void;
@@ -847,11 +937,14 @@ function RoomCard({
   rewardTiradas,
   pendingSubtablas,
   itemAssignments,
+  itemsForSale,
   goldTotal,
   goldResults,
+  configItems,
   onUpdateRewardTirada,
   onProcessRewards,
   onItemDragStart,
+  onMarkItemForSale,
   onConfirmAssignments,
   onGoldTotalChange,
   onRollGoldDice,
@@ -881,10 +974,12 @@ function RoomCard({
     ? `${room.encounterResult?.cantidad_total || 0} enemigos`
     : 'Pendiente';
 
-  // All items assigned via DnD?
+  // All items assigned via DnD or marked for sale?
   const allItemsAssigned =
     room.rewardsResult?.items_pendientes.length === 0 ||
-    room.rewardsResult?.items_pendientes.every((item) => itemAssignments[item.indice] != null);
+    room.rewardsResult?.items_pendientes.every(
+      (item) => itemAssignments[item.indice] != null || itemsForSale.includes(item.indice)
+    );
 
   return (
     <div
@@ -958,8 +1053,11 @@ function RoomCard({
                 <RewardsDisplay
                   results={room.rewardsResult}
                   itemAssignments={itemAssignments}
+                  itemsForSale={itemsForSale}
                   activeParticipants={activeParticipants}
+                  configItems={configItems}
                   onItemDragStart={onItemDragStart}
+                  onMarkItemForSale={onMarkItemForSale}
                 />
               )}
 
@@ -1179,13 +1277,19 @@ function RewardRollSection({
 function RewardsDisplay({
   results,
   itemAssignments,
+  itemsForSale,
   activeParticipants,
+  configItems,
   onItemDragStart,
+  onMarkItemForSale,
 }: {
   results: ProcesarRecompensasResponse;
   itemAssignments: Record<number, number>;
+  itemsForSale: number[];
   activeParticipants: Participacion[];
+  configItems: Item[];
   onItemDragStart: (itemIndex: number) => void;
+  onMarkItemForSale: (itemIndex: number) => void;
 }) {
   return (
     <div className="space-y-2">
@@ -1200,12 +1304,14 @@ function RewardsDisplay({
       {results.items_pendientes.length > 0 && (
         <div className="space-y-1.5 pt-2 border-t border-[var(--color-dungeon-border)]">
           <p className="text-xs text-stone-500">
-            Arrastra los items hacia un personaje para asignarlos:
+            Arrastra los items hacia un personaje para asignarlos, o marca como "Vender":
           </p>
           {results.items_pendientes.map((item) => {
             const assignedTo = activeParticipants.find(
               (p) => p.id === itemAssignments[item.indice]
             );
+            const isForSale = itemsForSale.includes(item.indice);
+            const isResolved = assignedTo != null || isForSale;
             // Look up the full resultado to get descripcion and formatted name
             const resultado = results.resultados[item.indice];
             const displayName =
@@ -1214,30 +1320,56 @@ function RewardsDisplay({
                 ? `${item.item_nombre} +${item.modificador_tier}`
                 : item.item_nombre);
             const descripcion = resultado?.descripcion;
+            // Look up config item for precio_base
+            const configItem = configItems.find((ci) => ci.id === item.item_id);
+            const precioBase = configItem?.precio_base ?? null;
+            const dadosPrecio = configItem?.dados_precio ?? null;
 
             return (
               <div
                 key={item.indice}
-                draggable={!assignedTo}
-                onDragStart={() => !assignedTo && onItemDragStart(item.indice)}
+                draggable={!isResolved}
+                onDragStart={() => !isResolved && onItemDragStart(item.indice)}
                 className={`rounded border text-sm select-none transition-all ${
-                  assignedTo
+                  isForSale
+                    ? 'border-stone-600/40 bg-stone-800/40 cursor-default opacity-80'
+                    : assignedTo
                     ? 'border-emerald-700/40 bg-emerald-900/10 cursor-default opacity-70'
                     : 'border-amber-600/40 bg-amber-600/10 cursor-grab active:cursor-grabbing hover:border-amber-500'
                 }`}
               >
                 <div className="flex items-center gap-2 p-2.5">
-                  <span className="text-lg flex-shrink-0">⚔️</span>
+                  <span className="text-lg flex-shrink-0">
+                    {isForSale ? '💰' : '⚔️'}
+                  </span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-stone-200 font-medium truncate">{displayName}</p>
-                    <p className="text-xs text-stone-500 capitalize">{item.subtabla_nombre}</p>
+                    <p className={`font-medium truncate ${isForSale ? 'text-stone-400 line-through' : 'text-stone-200'}`}>
+                      {displayName}
+                    </p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-xs text-stone-500 capitalize">{item.subtabla_nombre}</p>
+                      {(precioBase != null || dadosPrecio) && (
+                        <span className="text-xs text-amber-500/80 font-mono">
+                          {precioBase != null ? `${precioBase}g` : dadosPrecio}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   {assignedTo ? (
                     <span className="text-xs text-emerald-400 flex-shrink-0">
                       → {assignedTo.nombre_personaje}
                     </span>
                   ) : (
-                    <span className="text-xs text-stone-600 flex-shrink-0">Arrastra →</span>
+                    <button
+                      onClick={() => onMarkItemForSale(item.indice)}
+                      className={`text-xs px-2 py-0.5 rounded border transition-colors flex-shrink-0 ${
+                        isForSale
+                          ? 'border-amber-500/60 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
+                          : 'border-stone-600/60 text-stone-500 hover:border-stone-500 hover:text-stone-400'
+                      }`}
+                    >
+                      {isForSale ? '💰 Vender' : 'Vender'}
+                    </button>
                   )}
                 </div>
                 {descripcion && (
