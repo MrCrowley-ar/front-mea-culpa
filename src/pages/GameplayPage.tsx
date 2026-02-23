@@ -267,7 +267,7 @@ export function GameplayPage() {
             item_id: item.item_id,
             modificador_tier: item.modificador_tier,
             tirada_original: item.tirada_d20,
-            tirada_subtabla: item.tirada_subtabla ?? undefined,
+            tirada_subtabla: item.tirada_subtabla || undefined,
           });
         }
         store.updateRoom(roomIndex, { itemsAssigned: true });
