@@ -138,7 +138,8 @@ export function GameplayPage() {
       if (!room?.rewardsResult) return;
       Object.entries(assignments).forEach(([itemIndexStr, participacionId]) => {
         const itemIndex = parseInt(itemIndexStr);
-        const item = room.rewardsResult!.items_pendientes[itemIndex];
+        // find by indice (NOT array position — items_pendientes is a subset of tiradas)
+        const item = room.rewardsResult!.items_pendientes.find((it) => it.indice === itemIndex);
         if (!item) return;
         if (!byPart[participacionId]) byPart[participacionId] = [];
         byPart[participacionId].push({ roomIndex, item });
@@ -755,25 +756,27 @@ export function GameplayPage() {
                       <p className="text-[10px] text-stone-500 uppercase tracking-wider">
                         Items asignados
                       </p>
-                      {assignedItems.map(({ roomIndex, item }) => (
-                        <div
-                          key={`${roomIndex}-${item.indice}`}
-                          className="flex items-center gap-1.5 text-xs text-emerald-300"
-                        >
-                          <span className="text-emerald-600">⚔</span>
-                          <span className="truncate">
-                            {item.item_nombre}
-                            {item.modificador_tier > 0 && (
-                              <span className="text-amber-400 ml-0.5">
-                                +{item.modificador_tier}
-                              </span>
-                            )}
-                          </span>
-                          <span className="text-stone-600 ml-auto flex-shrink-0">
-                            S{roomIndex + 1}
-                          </span>
-                        </div>
-                      ))}
+                      {assignedItems.map(({ roomIndex, item }) => {
+                        const resultado =
+                          store.rooms[roomIndex]?.rewardsResult?.resultados[item.indice];
+                        const displayName =
+                          resultado?.item_con_modificador ||
+                          (item.modificador_tier > 0
+                            ? `${item.item_nombre} +${item.modificador_tier}`
+                            : item.item_nombre);
+                        return (
+                          <div
+                            key={`${roomIndex}-${item.indice}`}
+                            className="flex items-center gap-1.5 text-xs text-emerald-300"
+                          >
+                            <span className="text-emerald-600 flex-shrink-0">⚔</span>
+                            <span className="truncate flex-1">{displayName}</span>
+                            <span className="text-stone-600 flex-shrink-0">
+                              S{roomIndex + 1}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
@@ -1203,33 +1206,44 @@ function RewardsDisplay({
             const assignedTo = activeParticipants.find(
               (p) => p.id === itemAssignments[item.indice]
             );
+            // Look up the full resultado to get descripcion and formatted name
+            const resultado = results.resultados[item.indice];
+            const displayName =
+              resultado?.item_con_modificador ||
+              (item.modificador_tier > 0
+                ? `${item.item_nombre} +${item.modificador_tier}`
+                : item.item_nombre);
+            const descripcion = resultado?.descripcion;
+
             return (
               <div
                 key={item.indice}
                 draggable={!assignedTo}
                 onDragStart={() => !assignedTo && onItemDragStart(item.indice)}
-                className={`flex items-center gap-2 p-2.5 rounded border text-sm select-none transition-all ${
+                className={`rounded border text-sm select-none transition-all ${
                   assignedTo
                     ? 'border-emerald-700/40 bg-emerald-900/10 cursor-default opacity-70'
                     : 'border-amber-600/40 bg-amber-600/10 cursor-grab active:cursor-grabbing hover:border-amber-500'
                 }`}
               >
-                <span className="text-lg">⚔️</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-stone-200 font-medium truncate">
-                    {item.item_nombre}
-                    {item.modificador_tier > 0 && (
-                      <span className="text-amber-400 ml-1">+{item.modificador_tier}</span>
-                    )}
-                  </p>
-                  <p className="text-xs text-stone-500">{item.subtabla_nombre}</p>
+                <div className="flex items-center gap-2 p-2.5">
+                  <span className="text-lg flex-shrink-0">⚔️</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-stone-200 font-medium truncate">{displayName}</p>
+                    <p className="text-xs text-stone-500 capitalize">{item.subtabla_nombre}</p>
+                  </div>
+                  {assignedTo ? (
+                    <span className="text-xs text-emerald-400 flex-shrink-0">
+                      → {assignedTo.nombre_personaje}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-stone-600 flex-shrink-0">Arrastra →</span>
+                  )}
                 </div>
-                {assignedTo ? (
-                  <span className="text-xs text-emerald-400 flex-shrink-0">
-                    → {assignedTo.nombre_personaje}
-                  </span>
-                ) : (
-                  <span className="text-xs text-stone-600 flex-shrink-0">Arrastra →</span>
+                {descripcion && (
+                  <p className="text-[11px] text-stone-500 px-3 pb-2 leading-relaxed border-t border-current/10">
+                    {descripcion}
+                  </p>
                 )}
               </div>
             );
