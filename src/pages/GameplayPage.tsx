@@ -47,6 +47,10 @@ export function GameplayPage() {
   const [roomRewardTiradas, setRoomRewardTiradas] = useState<
     Record<number, Array<{ d20: string; subtabla: string }>>
   >({});
+  // Which tirada indices need a subtabla after a first processing pass
+  const [roomPendingSubtablas, setRoomPendingSubtablas] = useState<
+    Record<number, boolean[]>
+  >({});
   const [roomItemAssignments, setRoomItemAssignments] = useState<
     Record<number, Record<number, number>>
   >({});
@@ -236,7 +240,19 @@ export function GameplayPage() {
           historial_habitacion_id: room.habitacion.id,
           tiradas,
         });
-        store.updateRoom(roomIndex, { rewardsResult: result, rewardsResolved: true });
+        const pendingList = result.resultados.map((r) => r.requiere_subtabla);
+        const hasPending = pendingList.some(Boolean);
+        store.updateRoom(roomIndex, {
+          rewardsResult: result,
+          rewardsResolved: !hasPending,
+        });
+        setRoomPendingSubtablas((prev) => ({ ...prev, [roomIndex]: pendingList }));
+        if (hasPending) {
+          addToast(
+            'Algunas recompensas necesitan una segunda tirada — completa los campos resaltados y re-procesa',
+            'error'
+          );
+        }
       } catch {
         addToast('Error al procesar recompensas', 'error');
       } finally {
@@ -608,6 +624,7 @@ export function GameplayPage() {
                 distributingGold={distributingGold === roomIndex}
                 completingRoom={completingRoom === roomIndex}
                 rewardTiradas={roomRewardTiradas[roomIndex] || []}
+                pendingSubtablas={roomPendingSubtablas[roomIndex] || []}
                 itemAssignments={roomItemAssignments[roomIndex] || {}}
                 goldTotal={roomGoldTotals[roomIndex] || ''}
                 goldResults={roomGoldResults[roomIndex] || []}
@@ -799,6 +816,7 @@ interface RoomCardProps {
   distributingGold: boolean;
   completingRoom: boolean;
   rewardTiradas: Array<{ d20: string; subtabla: string }>;
+  pendingSubtablas: boolean[];
   itemAssignments: Record<number, number>;
   goldTotal: string;
   goldResults: RepartoOro[];
@@ -824,6 +842,7 @@ function RoomCard({
   distributingGold,
   completingRoom,
   rewardTiradas,
+  pendingSubtablas,
   itemAssignments,
   goldTotal,
   goldResults,
@@ -900,11 +919,31 @@ function RoomCard({
           {/* Rewards section */}
           {isPlaying && room.encounterResolved && !room.completed && (
             <>
+              {/* Warning + partial results when some rewards need subtabla */}
+              {!room.rewardsResolved && room.rewardsResult && pendingSubtablas.some(Boolean) && (
+                <div className="space-y-2">
+                  <div className="flex items-start gap-2 p-2.5 rounded bg-amber-900/20 border border-amber-600/40 text-xs text-amber-300">
+                    <span className="flex-shrink-0 text-base">⚠️</span>
+                    <p>
+                      Algunas recompensas necesitan una segunda tirada.
+                      Completa los campos <strong>sub:</strong> resaltados y vuelve a procesar.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-stone-500 font-medium uppercase tracking-wider">Resultados parciales</p>
+                    {room.rewardsResult.resultados.map((r, i) => (
+                      <RewardResultRow key={i} index={i} result={r} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Reward rolls (one input per enemy) */}
               {!room.rewardsResolved && room.encounterResult && (
                 <RewardRollSection
                   enemyCount={room.encounterResult.cantidad_total}
                   tiradas={rewardTiradas}
+                  pendingSubtablas={pendingSubtablas}
                   loading={rewardsLoading}
                   onUpdate={onUpdateRewardTirada}
                   onProcess={onProcessRewards}
@@ -1033,20 +1072,37 @@ function EncounterDisplay({ encounter }: { encounter: EncounterResponse }) {
   );
 }
 
+const SUBTABLA_HINT: Record<string, string> = {
+  armas: 'Tabla de Armas',
+  armaduras: 'Tabla de Armaduras',
+  objetos_curiosos: 'Objetos Curiosos',
+  botin_alternativo: 'Objetos Curiosos',
+  items_boss: 'Items de Boss',
+  pociones: 'Tabla de Pociones',
+  tesoro_menor: 'Tesoro Menor',
+  critico: 'Critico',
+};
+
 function RewardRollSection({
   enemyCount,
   tiradas,
+  pendingSubtablas,
   loading,
   onUpdate,
   onProcess,
 }: {
   enemyCount: number;
   tiradas: Array<{ d20: string; subtabla: string }>;
+  pendingSubtablas: boolean[];
   loading: boolean;
   onUpdate: (i: number, field: 'd20' | 'subtabla', value: string) => void;
   onProcess: () => void;
 }) {
   if (tiradas.length === 0 || tiradas.length !== enemyCount) return null;
+
+  const hasPending = pendingSubtablas.some(Boolean);
+  // Missing required subtablas
+  const missingRequired = pendingSubtablas.some((needs, i) => needs && !tiradas[i]?.subtabla);
 
   return (
     <div className="space-y-2">
@@ -1054,48 +1110,64 @@ function RewardRollSection({
         Recompensas — {enemyCount} tiradas
       </h3>
       <div className="space-y-1.5">
-        {tiradas.map((t, i) => (
-          <div
-            key={i}
-            className="flex items-center gap-2 p-2 rounded bg-[var(--color-dungeon-surface)] border border-[var(--color-dungeon-border)]"
-          >
-            <span className="text-xs text-stone-500 w-16 flex-shrink-0">
-              Enemigo {i + 1}
-            </span>
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-stone-600">d20:</span>
-              <input
-                type="number"
-                min="1"
-                max="20"
-                value={t.d20}
-                onChange={(e) => onUpdate(i, 'd20', e.target.value)}
-                className="w-12 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-1.5 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
-              />
+        {tiradas.map((t, i) => {
+          const needsSubtabla = pendingSubtablas[i] === true;
+          return (
+            <div
+              key={i}
+              className={`flex items-center gap-2 p-2 rounded border transition-colors ${
+                needsSubtabla
+                  ? 'border-amber-600/60 bg-amber-900/10'
+                  : 'border-[var(--color-dungeon-border)] bg-[var(--color-dungeon-surface)]'
+              }`}
+            >
+              <span className={`text-xs w-16 flex-shrink-0 ${needsSubtabla ? 'text-amber-400' : 'text-stone-500'}`}>
+                Enemigo {i + 1}
+              </span>
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-stone-600">d20:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={t.d20}
+                  onChange={(e) => onUpdate(i, 'd20', e.target.value)}
+                  className="w-12 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-1.5 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                />
+              </div>
+              <div className="flex items-center gap-1">
+                <span className={`text-xs font-medium ${needsSubtabla ? 'text-amber-400' : 'text-stone-600'}`}>
+                  sub:
+                </span>
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={t.subtabla}
+                  onChange={(e) => onUpdate(i, 'subtabla', e.target.value)}
+                  placeholder="—"
+                  className={`w-12 rounded border px-1.5 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 ${
+                    needsSubtabla
+                      ? 'border-amber-600/60 bg-amber-900/10 focus:ring-amber-400/50 ring-1 ring-amber-600/30'
+                      : 'border-[var(--color-dungeon-border)] bg-[var(--color-dungeon)] focus:ring-amber-500/50'
+                  }`}
+                />
+              </div>
+              {t.d20 && !needsSubtabla && <span className="text-emerald-500 text-xs">✓</span>}
+              {needsSubtabla && (
+                <span className="text-amber-400 text-xs flex-shrink-0">← requerido</span>
+              )}
             </div>
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-stone-600">sub:</span>
-              <input
-                type="number"
-                min="1"
-                max="20"
-                value={t.subtabla}
-                onChange={(e) => onUpdate(i, 'subtabla', e.target.value)}
-                placeholder="—"
-                className="w-12 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-1.5 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
-              />
-            </div>
-            {t.d20 && <span className="text-emerald-500 text-xs">✓</span>}
-          </div>
-        ))}
+          );
+        })}
       </div>
       <Button
         onClick={onProcess}
         loading={loading}
-        disabled={tiradas.some((t) => !t.d20)}
+        disabled={tiradas.some((t) => !t.d20) || missingRequired}
         size="sm"
       >
-        Procesar Recompensas
+        {hasPending ? 'Re-procesar con subtablas' : 'Procesar Recompensas'}
       </Button>
     </div>
   );
@@ -1183,9 +1255,16 @@ function RewardsDisplay({
 }
 
 function RewardResultRow({ index, result }: { index: number; result: RewardResponse }) {
+  const isPending = result.requiere_subtabla;
   return (
-    <div className="p-2 rounded bg-[var(--color-dungeon)] border border-[var(--color-dungeon-border)]">
-      <div className="flex items-center gap-2 text-xs">
+    <div
+      className={`p-2 rounded border text-xs ${
+        isPending
+          ? 'border-amber-600/30 bg-amber-900/10'
+          : 'border-[var(--color-dungeon-border)] bg-[var(--color-dungeon)]'
+      }`}
+    >
+      <div className="flex items-center gap-2">
         <span className="text-stone-600 font-mono w-5">#{index + 1}</span>
         {result.tipo_resultado === 'nada' && (
           <span className="text-stone-500 italic">Nada</span>
@@ -1196,20 +1275,30 @@ function RewardResultRow({ index, result }: { index: number; result: RewardRespo
             <span className="text-stone-500">({result.dados_oro})</span>
           </>
         )}
-        {result.tipo_resultado === 'subtabla' && (
+        {result.tipo_resultado === 'subtabla' && !isPending && (
           <>
             <span className="text-emerald-400 font-medium">
-              {result.item_nombre || result.subtabla_nombre}
+              {result.item_con_modificador || result.item_nombre || result.subtabla_nombre}
             </span>
             {result.modificador_tier ? (
-              <span className="text-amber-400 font-bold">+{result.modificador_tier}</span>
+              <span className="text-amber-400 font-bold ml-0.5">+{result.modificador_tier}</span>
             ) : null}
           </>
         )}
-        <span className="text-stone-700 text-[10px] ml-auto">
+        {isPending && (
+          <span className="text-amber-400 italic">
+            ⏳ {SUBTABLA_HINT[result.subtabla_nombre || ''] || result.subtabla_nombre} — necesita subtabla
+          </span>
+        )}
+        <span className="text-stone-700 text-[10px] ml-auto flex-shrink-0">
           {result.tirada_original}+{result.bonus_recompensa}={result.tirada_con_bonus}
         </span>
       </div>
+      {result.descripcion && (
+        <p className="text-[11px] text-stone-500 mt-1 pl-7 leading-relaxed">
+          {result.descripcion}
+        </p>
+      )}
     </div>
   );
 }
