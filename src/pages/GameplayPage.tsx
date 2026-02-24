@@ -316,6 +316,14 @@ export function GameplayPage() {
     [store, roomRewardTiradas, addToast]
   );
 
+  const handleUnassignItem = useCallback((roomIndex: number, itemIndice: number) => {
+    setRoomItemAssignments((prev) => {
+      const current = { ...(prev[roomIndex] || {}) };
+      delete current[itemIndice];
+      return { ...prev, [roomIndex]: current };
+    });
+  }, []);
+
   const handleMarkItemForSale = useCallback((roomIndex: number, itemIndice: number) => {
     setRoomItemsForSale((prev) => {
       const current = prev[roomIndex] || [];
@@ -724,6 +732,7 @@ export function GameplayPage() {
                 }}
                 onProcessRewards={() => handleProcessRewards(roomIndex)}
                 onItemDragStart={(itemIndex) => handleItemDragStart(roomIndex, itemIndex)}
+                onUnassignItem={(itemIndex) => handleUnassignItem(roomIndex, itemIndex)}
                 onMarkItemForSale={(itemIndex) => handleMarkItemForSale(roomIndex, itemIndex)}
                 onConfirmAssignments={() => handleAssignItems(roomIndex)}
                 onGoldTotalChange={(val) =>
@@ -915,6 +924,7 @@ interface RoomCardProps {
   onUpdateRewardTirada: (i: number, field: 'd20' | 'subtabla', value: string) => void;
   onProcessRewards: () => void;
   onItemDragStart: (itemIndex: number) => void;
+  onUnassignItem: (itemIndex: number) => void;
   onMarkItemForSale: (itemIndex: number) => void;
   onConfirmAssignments: () => void;
   onGoldTotalChange: (val: string) => void;
@@ -944,6 +954,7 @@ function RoomCard({
   onUpdateRewardTirada,
   onProcessRewards,
   onItemDragStart,
+  onUnassignItem,
   onMarkItemForSale,
   onConfirmAssignments,
   onGoldTotalChange,
@@ -1057,6 +1068,7 @@ function RoomCard({
                   activeParticipants={activeParticipants}
                   configItems={configItems}
                   onItemDragStart={onItemDragStart}
+                  onUnassignItem={onUnassignItem}
                   onMarkItemForSale={onMarkItemForSale}
                 />
               )}
@@ -1281,6 +1293,7 @@ function RewardsDisplay({
   activeParticipants,
   configItems,
   onItemDragStart,
+  onUnassignItem,
   onMarkItemForSale,
 }: {
   results: ProcesarRecompensasResponse;
@@ -1289,6 +1302,7 @@ function RewardsDisplay({
   activeParticipants: Participacion[];
   configItems: Item[];
   onItemDragStart: (itemIndex: number) => void;
+  onUnassignItem: (itemIndex: number) => void;
   onMarkItemForSale: (itemIndex: number) => void;
 }) {
   return (
@@ -1356,9 +1370,18 @@ function RewardsDisplay({
                     </div>
                   </div>
                   {assignedTo ? (
-                    <span className="text-xs text-emerald-400 flex-shrink-0">
-                      → {assignedTo.nombre_personaje}
-                    </span>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <span className="text-xs text-emerald-400">
+                        → {assignedTo.nombre_personaje}
+                      </span>
+                      <button
+                        onClick={() => onUnassignItem(item.indice)}
+                        title="Deshacer asignación"
+                        className="text-stone-600 hover:text-red-400 transition-colors text-sm leading-none"
+                      >
+                        ×
+                      </button>
+                    </div>
                   ) : (
                     <button
                       onClick={() => onMarkItemForSale(item.indice)}
