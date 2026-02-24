@@ -371,6 +371,22 @@ export function GameplayPage() {
             tirada_subtabla: item.tirada_subtabla || undefined,
           });
         }
+
+        // Add sale items' precio_base to the gold total
+        if (forSale.length > 0) {
+          const fixedSaleTotal = forSale.reduce((sum, indice) => {
+            const item = room.rewardsResult!.items_pendientes.find((it) => it.indice === indice);
+            const ci = configItems.find((c) => c.id === item?.item_id);
+            return sum + (ci?.precio_base ?? 0);
+          }, 0);
+          if (fixedSaleTotal > 0) {
+            setRoomGoldTotals((prev) => {
+              const existing = parseInt(prev[roomIndex] || '0') || 0;
+              return { ...prev, [roomIndex]: String(existing + fixedSaleTotal) };
+            });
+          }
+        }
+
         store.updateRoom(roomIndex, { itemsAssigned: true });
         addToast('Items asignados', 'success');
       } catch {
@@ -379,7 +395,7 @@ export function GameplayPage() {
         setAssigningItems(null);
       }
     },
-    [store, roomItemAssignments, roomItemsForSale, addToast]
+    [store, roomItemAssignments, roomItemsForSale, configItems, addToast]
   );
 
   const handleDistributeGold = useCallback(
@@ -985,6 +1001,13 @@ function RoomCard({
     ? `${room.encounterResult?.cantidad_total || 0} enemigos`
     : 'Pendiente';
 
+  // Sum of precio_base for items marked for sale (for gold pre-fill display)
+  const saleGoldValue = itemsForSale.reduce((sum, indice) => {
+    const item = room.rewardsResult?.items_pendientes.find((it) => it.indice === indice);
+    const ci = configItems.find((c) => c.id === item?.item_id);
+    return sum + (ci?.precio_base ?? 0);
+  }, 0);
+
   // All items assigned via DnD or marked for sale?
   const allItemsAssigned =
     room.rewardsResult?.items_pendientes.length === 0 ||
@@ -1098,10 +1121,11 @@ function RoomCard({
                   goldTotal={goldTotal}
                   loading={distributingGold}
                   activeCount={activeParticipants.length}
+                  saleGoldValue={saleGoldValue}
                   onGoldChange={onGoldTotalChange}
                   onRollDice={onRollGoldDice}
                   onDistribute={onDistributeGold}
-                  hasNoGold={room.rewardsResult.oro_dados.length === 0}
+                  hasNoGold={room.rewardsResult.oro_dados.length === 0 && saleGoldValue === 0}
                   onSkip={onCompleteRoom}
                 />
               )}
@@ -1477,6 +1501,7 @@ function GoldSection({
   goldTotal,
   loading,
   activeCount,
+  saleGoldValue,
   onGoldChange,
   onRollDice,
   onDistribute,
@@ -1487,6 +1512,7 @@ function GoldSection({
   goldTotal: string;
   loading: boolean;
   activeCount: number;
+  saleGoldValue: number;
   onGoldChange: (val: string) => void;
   onRollDice: () => void;
   onDistribute: () => void;
@@ -1509,19 +1535,33 @@ function GoldSection({
       <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wider">
         Repartir Oro
       </h4>
-      <div className="flex items-center gap-2 flex-wrap">
-        {oroDados.map((dado, i) => (
-          <span
-            key={i}
-            className="px-2 py-0.5 rounded-full bg-amber-600/20 border border-amber-600/40 text-amber-300 text-sm font-mono"
-          >
-            {dado}
-          </span>
-        ))}
-        <Button variant="ghost" size="sm" onClick={onRollDice}>
-          🎲 Tirar
-        </Button>
-      </div>
+
+      {/* Sale items gold contribution */}
+      {saleGoldValue > 0 && (
+        <div className="flex items-center gap-2 text-xs p-2 rounded bg-amber-900/10 border border-amber-700/30">
+          <span>💰</span>
+          <span className="text-stone-400">Items vendidos:</span>
+          <span className="text-amber-400 font-mono font-bold">+{saleGoldValue}g</span>
+          <span className="text-stone-600">(ya incluido en el total)</span>
+        </div>
+      )}
+
+      {oroDados.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {oroDados.map((dado, i) => (
+            <span
+              key={i}
+              className="px-2 py-0.5 rounded-full bg-amber-600/20 border border-amber-600/40 text-amber-300 text-sm font-mono"
+            >
+              {dado}
+            </span>
+          ))}
+          <Button variant="ghost" size="sm" onClick={onRollDice}>
+            🎲 Tirar
+          </Button>
+        </div>
+      )}
+
       <div className="flex items-end gap-2">
         <div className="w-28">
           <Input
