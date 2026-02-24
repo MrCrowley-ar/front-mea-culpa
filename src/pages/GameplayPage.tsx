@@ -515,8 +515,17 @@ export function GameplayPage() {
   const handleRollGoldDice = (roomIndex: number) => {
     const room = store.rooms[roomIndex];
     if (!room?.rewardsResult) return;
+    const forSale = roomItemsForSale[roomIndex] || [];
+    const saleDados = forSale
+      .map((indice) => {
+        const item = room.rewardsResult!.items_pendientes.find((it) => it.indice === indice);
+        const ci = configItems.find((c) => c.id === item?.item_id);
+        // Only add dados_precio when there's no fixed precio_base (would already be counted)
+        return ci?.dados_precio != null && ci.precio_base == null ? ci.dados_precio : null;
+      })
+      .filter((d): d is string => d !== null);
     let total = 0;
-    for (const dado of room.rewardsResult.oro_dados) {
+    for (const dado of [...room.rewardsResult.oro_dados, ...saleDados]) {
       total += rollDice(dado);
     }
     setRoomGoldTotals((prev) => ({ ...prev, [roomIndex]: String(total) }));
@@ -1001,12 +1010,21 @@ function RoomCard({
     ? `${room.encounterResult?.cantidad_total || 0} enemigos`
     : 'Pendiente';
 
-  // Sum of precio_base for items marked for sale (for gold pre-fill display)
+  // Sum of precio_base for items marked for sale (pre-filled into gold total)
   const saleGoldValue = itemsForSale.reduce((sum, indice) => {
     const item = room.rewardsResult?.items_pendientes.find((it) => it.indice === indice);
     const ci = configItems.find((c) => c.id === item?.item_id);
     return sum + (ci?.precio_base ?? 0);
   }, 0);
+
+  // Dice expressions (dados_precio) from sold items that have no fixed price
+  const saleDados = itemsForSale
+    .map((indice) => {
+      const item = room.rewardsResult?.items_pendientes.find((it) => it.indice === indice);
+      const ci = configItems.find((c) => c.id === item?.item_id);
+      return ci?.dados_precio != null && ci.precio_base == null ? ci.dados_precio : null;
+    })
+    .filter((d): d is string => d !== null);
 
   // All items assigned via DnD or marked for sale?
   const allItemsAssigned =
@@ -1117,7 +1135,7 @@ function RoomCard({
               {/* Gold section */}
               {room.itemsAssigned && !room.goldDistributed && room.rewardsResult && (
                 <GoldSection
-                  oroDados={room.rewardsResult.oro_dados}
+                  oroDados={[...room.rewardsResult.oro_dados, ...saleDados]}
                   goldTotal={goldTotal}
                   loading={distributingGold}
                   activeCount={activeParticipants.length}
@@ -1125,7 +1143,7 @@ function RoomCard({
                   onGoldChange={onGoldTotalChange}
                   onRollDice={onRollGoldDice}
                   onDistribute={onDistributeGold}
-                  hasNoGold={room.rewardsResult.oro_dados.length === 0 && saleGoldValue === 0}
+                  hasNoGold={room.rewardsResult.oro_dados.length === 0 && saleGoldValue === 0 && saleDados.length === 0}
                   onSkip={onCompleteRoom}
                 />
               )}
