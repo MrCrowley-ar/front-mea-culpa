@@ -10,7 +10,7 @@ import { gameplayService } from '../services/gameplay.service';
 import { configService } from '../services/config.service';
 import { useExpeditionStore, type RoomState } from '../stores/expedition.store';
 import { useToastStore } from '../stores/toast.store';
-import { rollD20, rollDice } from '../lib/dice';
+import { rollDice } from '../lib/dice';
 import { ROOM_TYPE_ICONS, ROOM_TYPE_COLORS, TIER_LABELS } from '../config/constants';
 import type { Piso, Item } from '../types/config';
 import type {
@@ -42,6 +42,8 @@ export function GameplayPage() {
 
   // Single "roll all encounters" loading state
   const [rollingAllEncounters, setRollingAllEncounters] = useState(false);
+  // Manual d20 input per room for encounter resolution
+  const [encounterTiradas, setEncounterTiradas] = useState<Record<number, string>>({});
 
   // Per-room reward state
   const [roomRewardTiradas, setRoomRewardTiradas] = useState<
@@ -230,6 +232,10 @@ export function GameplayPage() {
       }));
 
       store.setRooms(rooms);
+      // Initialize one empty input per room for manual encounter d20 entry
+      const initTiradas: Record<number, string> = {};
+      rooms.forEach((_, i) => { initTiradas[i] = ''; });
+      setEncounterTiradas(initTiradas);
       setSetupPhase('rooms_generated');
       addToast(
         `Piso ${currentFloorConfig.piso} generado: ${layout.total_habitaciones} salas`,
@@ -242,14 +248,22 @@ export function GameplayPage() {
     }
   }, [store, currentFloorConfig, includeBonus, includeEvento, addToast]);
 
-  // Single button: roll all encounters at once
+  // Resolve all encounters using manually entered d20 values
   const handleRollAllEncounters = useCallback(async () => {
+    // Validate all inputs
+    for (let i = 0; i < store.rooms.length; i++) {
+      const val = parseInt(encounterTiradas[i] || '');
+      if (isNaN(val) || val < 1 || val > 20) {
+        addToast('Todas las tiradas deben ser entre 1 y 20', 'error');
+        return;
+      }
+    }
     setRollingAllEncounters(true);
     try {
       for (let i = 0; i < store.rooms.length; i++) {
         const room = store.rooms[i];
         if (room.encounterResolved) continue;
-        const tirada = rollD20();
+        const tirada = parseInt(encounterTiradas[i]);
         const result = await gameplayService.resolverEncuentroHabitacion(
           room.habitacion.id,
           tirada
@@ -267,11 +281,11 @@ export function GameplayPage() {
       setSetupPhase('playing');
       addToast('Todos los encuentros resueltos', 'success');
     } catch {
-      addToast('Error al tirar encuentros', 'error');
+      addToast('Error al resolver encuentros', 'error');
     } finally {
       setRollingAllEncounters(false);
     }
-  }, [store, addToast]);
+  }, [store, encounterTiradas, addToast]);
 
   const handleProcessRewards = useCallback(
     async (roomIndex: number) => {
@@ -451,6 +465,7 @@ export function GameplayPage() {
     setSetupPhase('configure_floor');
     setIncludeBonus(false);
     setIncludeEvento(false);
+    setEncounterTiradas({});
     setRoomRewardTiradas({});
     setRoomItemAssignments({});
     setRoomItemsForSale({});
@@ -708,19 +723,42 @@ export function GameplayPage() {
               />
             </div>
 
-            {/* Roll all encounters button */}
+            {/* Manual encounter d20 entry */}
             {setupPhase === 'rooms_generated' && !allEncountersResolved && (
-              <Card className="text-center">
-                <p className="text-stone-400 text-sm mb-3">
-                  El sistema tirara 1d20 automaticamente por cada sala para determinar los
-                  encuentros.
-                </p>
+              <Card>
+                <h3 className="text-sm font-semibold text-stone-200 mb-3 font-[var(--font-heading)]">
+                  Tiradas de encuentro (d20)
+                </h3>
+                <div className="space-y-2 mb-4">
+                  {store.rooms.map((room, i) => (
+                    <div key={room.habitacion.id} className="flex items-center gap-3">
+                      <span className="text-base w-6 text-center flex-shrink-0">
+                        {ROOM_TYPE_ICONS[room.habitacion.tipo_nombre] || '🚪'}
+                      </span>
+                      <span className="text-stone-400 text-sm flex-1 capitalize">
+                        Sala {room.habitacion.orden} — {room.habitacion.tipo_nombre}
+                      </span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="20"
+                        value={encounterTiradas[i] ?? ''}
+                        onChange={(e) =>
+                          setEncounterTiradas((prev) => ({ ...prev, [i]: e.target.value }))
+                        }
+                        placeholder="1-20"
+                        className="w-16 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-2 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                      />
+                    </div>
+                  ))}
+                </div>
                 <Button
                   onClick={handleRollAllEncounters}
                   loading={rollingAllEncounters}
+                  disabled={store.rooms.some((_, i) => !encounterTiradas[i])}
                   size="lg"
                 >
-                  🎲 Tirar todos los encuentros
+                  Resolver encuentros →
                 </Button>
               </Card>
             )}
