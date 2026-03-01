@@ -384,9 +384,15 @@ fecha: Date
 estado: "pendiente" | "en_curso" | "completada" | "cancelada"
 piso_actual: number (1-20, se actualiza al generar layout)
 notas: string | null
+estado_snapshot: object | null (JSON con estado completo UI + datos, para restaurar sesion)
 created_at: Date
 updated_at: Date
 ```
+
+> **Nota sobre `estado_snapshot`:** Campo JSONB flexible donde el front guarda un snapshot
+> completo del estado de la expedicion (datos de UI + datos del backend). Permite restaurar
+> la pantalla exacta donde quedo el DM si cierra el navegador o pierde conexion.
+> Se actualiza con PUT y se recupera con GET (ver endpoints de snapshot).
 
 #### Participacion (un jugador en una expedicion)
 ```
@@ -658,10 +664,12 @@ oro_total = sum(oro_bruto de todas las salas) + sum(precio_venta de items vendid
 | Metodo | Ruta | Que hace |
 |--------|------|----------|
 | GET | `/expediciones` | Listar todas |
-| GET | `/expediciones/:id` | Detalle |
+| GET | `/expediciones/:id` | Detalle (incluye `tiene_snapshot: boolean`) |
 | POST | `/expediciones` | Crear nueva |
 | PUT | `/expediciones/:id` | Actualizar (estado, piso, notas) |
 | DELETE | `/expediciones/:id` | Eliminar |
+| PUT | `/expediciones/:id/snapshot` | Guardar snapshot de estado (UI + datos) |
+| GET | `/expediciones/:id/snapshot` | Recuperar ultimo snapshot guardado |
 
 ### Participaciones
 | Metodo | Ruta | Que hace |
@@ -855,6 +863,35 @@ Formato estandar de error:
 - salaActual: { id, tipo, encuentro, recompensas, completada }
 ```
 
+### Persistencia del estado (snapshot)
+
+El backend ofrece un campo JSONB (`estado_snapshot`) por expedicion para guardar y restaurar
+el estado completo del front. Flujo recomendado:
+
+```
+1. Al cargar expedicion en_curso:
+   - GET /expediciones/:id → ver tiene_snapshot
+   - Si tiene_snapshot == true → GET /expediciones/:id/snapshot → restaurar UI
+   - Si tiene_snapshot == false → arrancar desde cero
+
+2. Durante el gameplay, guardar despues de cada accion clave:
+   - Despues de resolver encuentro
+   - Despues de procesar recompensas
+   - Despues de asignar cada item
+   - Despues de repartir oro
+   - Despues de completar sala
+   - Despues de generar layout de piso
+   → PUT /expediciones/:id/snapshot con el estado actual
+
+3. Al completar la expedicion:
+   - Se puede limpiar el snapshot (PUT con estado_snapshot: null o dejarlo como backup)
+```
+
+> **Beneficio:** Si el DM cierra el navegador, pierde conexion, o recarga la pagina,
+> puede retomar exactamente donde quedo. El snapshot incluye tanto el estado visual
+> (que sala esta expandida, que tiradas ya se hicieron) como los datos del backend
+> (participantes, recompensas pendientes, oro).
+
 ### Datos que se cargan una vez (cache)
 
 - Tiers (4 registros, nunca cambian)
@@ -876,6 +913,8 @@ Formato estandar de error:
    - Llamar `asignar-item` por cada item
    - Llamar `repartir-oro-habitacion` con el total de oro tirado
 5. **Un jugador que se va no puede volver.** Pero puede entrar un reemplazante como nueva participacion.
+6. **Guardar estado frecuentemente.** Usar `PUT /expediciones/:id/snapshot` despues de cada accion
+   importante para no perder progreso si se cierra el navegador.
 
 ---
 
@@ -1006,6 +1045,57 @@ Respuesta:
   "es_base_modificable": true
 }
 ```
+
+**PUT `/api/expediciones/:id/snapshot`** (DM/ADMIN) - Guardar estado
+```json
+{
+  "estado_snapshot": {
+    "ui": {
+      "sala_expandida_id": 3,
+      "tab_activo": "recompensas",
+      "tiradas_pendientes": [14, 8, 17]
+    },
+    "datos": {
+      "piso_actual": 3,
+      "habitaciones": [
+        { "id": 1, "completada": true },
+        { "id": 2, "completada": false, "tirada_encuentro": 14, "enemigos": 4 }
+      ],
+      "participantes_activos": [1, 2, 3, 5],
+      "recompensas_preview": [
+        { "indice": 0, "item_id": 5, "item_nombre": "Espada larga", "asignado_a": null }
+      ],
+      "oro_pendiente": { "dados": "2d6", "total": null }
+    }
+  }
+}
+```
+Respuesta:
+```json
+{
+  "expedicion_id": 1,
+  "updated_at": "2026-02-28T15:30:00.000Z"
+}
+```
+
+> **Para el front:** La estructura interna de `estado_snapshot` es libre. El backend solo
+> almacena y devuelve el JSON tal cual. El front define que datos necesita guardar.
+> Se recomienda guardar despues de cada accion importante (resolver encuentro, asignar item,
+> repartir oro, completar sala).
+
+**GET `/api/expediciones/:id/snapshot`** - Recuperar estado
+```
+Respuesta:
+```json
+{
+  "expedicion_id": 1,
+  "estado_snapshot": { ... } // el mismo JSON que se guardo, o null si nunca se guardo
+}
+```
+
+> **Para el front:** Al cargar una expedicion en_curso, verificar `tiene_snapshot` en el
+> detalle de expedicion. Si es `true`, hacer GET del snapshot y restaurar el estado.
+> Si es `null`, arrancar desde cero.
 
 **PUT `/api/configuracion/items/:id`** (ADMIN)
 ```json
