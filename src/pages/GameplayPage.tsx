@@ -64,8 +64,8 @@ export function GameplayPage() {
   const [configItems, setConfigItems] = useState<Item[]>([]);
   // Items marked for sale (per room, list of item.indice values)
   const [roomItemsForSale, setRoomItemsForSale] = useState<Record<number, number[]>>({});
-  // Gate localStorage saving until after initial load
-  const [initialized, setInitialized] = useState(false);
+  // Incremented after each key action to trigger a backend snapshot save
+  const [saveCounter, setSaveCounter] = useState(0);
 
   // Loading states
   const [rewardsLoading, setRewardsLoading] = useState<number | null>(null);
@@ -90,7 +90,7 @@ export function GameplayPage() {
       configService.getPisos(),
       configService.getItems(),
     ])
-      .then(([exp, parts, pisosData, itemsData]) => {
+      .then(async ([exp, parts, pisosData, itemsData]) => {
         store.setActiveExpedition(exp);
         store.setParticipants(parts);
         setPisos(pisosData);
@@ -113,42 +113,45 @@ export function GameplayPage() {
           }))
         );
 
-        // Restore gameplay state from localStorage
-        try {
-          const saved = localStorage.getItem(`mea-culpa-gameplay-${expedId}`);
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            if (parsed.rooms?.length > 0) {
-              store.setRooms(parsed.rooms);
-              setSetupPhase(parsed.setupPhase || 'configure_floor');
-              setRoomRewardTiradas(parsed.roomRewardTiradas || {});
-              setRoomPendingSubtablas(parsed.roomPendingSubtablas || {});
-              setRoomItemAssignments(parsed.roomItemAssignments || {});
-              setRoomItemsForSale(parsed.roomItemsForSale || {});
-              setRoomGoldTotals(parsed.roomGoldTotals || {});
-              setRoomGoldResults(parsed.roomGoldResults || {});
+        // Restore gameplay state from backend snapshot
+        if (exp.tiene_snapshot) {
+          try {
+            const snapshot = await expeditionService.getSnapshot(expedId);
+            if (snapshot && typeof snapshot === 'object') {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const s = snapshot as any;
+              if (s.rooms?.length > 0) {
+                store.setRooms(s.rooms);
+                store.setCurrentFloorIndex(s.currentFloorIndex || 0);
+                setSetupPhase(s.setupPhase || 'configure_floor');
+                setEncounterTiradas(s.encounterTiradas || {});
+                setRoomRewardTiradas(s.roomRewardTiradas || {});
+                setRoomPendingSubtablas(s.roomPendingSubtablas || {});
+                setRoomItemAssignments(s.roomItemAssignments || {});
+                setRoomItemsForSale(s.roomItemsForSale || {});
+                setRoomGoldTotals(s.roomGoldTotals || {});
+                setRoomGoldResults(s.roomGoldResults || {});
+              }
             }
+          } catch {
+            // Ignore snapshot restore failures — start fresh
           }
-        } catch {
-          // Ignore corrupt saved state
         }
       })
       .catch(() => addToast('Error al cargar la expedicion', 'error'))
-      .finally(() => {
-        setLoading(false);
-        setInitialized(true);
-      });
+      .finally(() => setLoading(false));
 
     return () => store.reset();
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Persist gameplay state to localStorage whenever it changes
+  // Save snapshot to backend after each key action (saveCounter is incremented by handlers)
   useEffect(() => {
-    if (!initialized || !id) return;
-    const key = `mea-culpa-gameplay-${id}`;
-    const state = {
+    if (saveCounter === 0 || !id) return;
+    const snapshot = {
       setupPhase,
+      currentFloorIndex: store.currentFloorIndex,
       rooms: store.rooms,
+      encounterTiradas,
       roomRewardTiradas,
       roomPendingSubtablas,
       roomItemAssignments,
@@ -156,12 +159,10 @@ export function GameplayPage() {
       roomGoldTotals,
       roomGoldResults,
     };
-    try {
-      localStorage.setItem(key, JSON.stringify(state));
-    } catch {
-      // Ignore storage quota errors
-    }
-  }, [initialized, id, setupPhase, store.rooms, roomRewardTiradas, roomPendingSubtablas, roomItemAssignments, roomItemsForSale, roomGoldTotals, roomGoldResults]); // eslint-disable-line react-hooks/exhaustive-deps
+    expeditionService.saveSnapshot(parseInt(id), snapshot).catch(() => {
+      // Silent fail — don't block the DM if snapshot save fails
+    });
+  }, [saveCounter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const currentFloorConfig = store.floorConfigs[store.currentFloorIndex];
   const currentPiso = pisos.find((p) => p.numero === currentFloorConfig?.piso);
@@ -237,6 +238,7 @@ export function GameplayPage() {
       rooms.forEach((_, i) => { initTiradas[i] = ''; });
       setEncounterTiradas(initTiradas);
       setSetupPhase('rooms_generated');
+      setSaveCounter((c) => c + 1);
       addToast(
         `Piso ${currentFloorConfig.piso} generado: ${layout.total_habitaciones} salas`,
         'success'
@@ -279,6 +281,7 @@ export function GameplayPage() {
         }));
       }
       setSetupPhase('playing');
+      setSaveCounter((c) => c + 1);
       addToast('Todos los encuentros resueltos', 'success');
     } catch {
       addToast('Error al resolver encuentros', 'error');
@@ -315,6 +318,7 @@ export function GameplayPage() {
           rewardsResolved: !hasPending,
         });
         setRoomPendingSubtablas((prev) => ({ ...prev, [roomIndex]: pendingList }));
+        setSaveCounter((c) => c + 1);
         if (hasPending) {
           addToast(
             'Algunas recompensas necesitan una segunda tirada — completa los campos resaltados y re-procesa',
@@ -402,6 +406,7 @@ export function GameplayPage() {
         }
 
         store.updateRoom(roomIndex, { itemsAssigned: true });
+        setSaveCounter((c) => c + 1);
         addToast('Items asignados', 'success');
       } catch {
         addToast('Error al asignar items', 'error');
@@ -432,6 +437,7 @@ export function GameplayPage() {
         });
         setRoomGoldResults((prev) => ({ ...prev, [roomIndex]: result.repartos }));
         store.updateRoom(roomIndex, { goldDistributed: true });
+        setSaveCounter((c) => c + 1);
         addToast('Oro repartido', 'success');
       } catch {
         addToast('Error al repartir oro', 'error');
@@ -451,6 +457,7 @@ export function GameplayPage() {
         await gameplayService.completarHabitacion(room.habitacion.id);
         store.updateRoom(roomIndex, { completed: true });
         setExpandedRoomIndex(null);
+        setSaveCounter((c) => c + 1);
         addToast('Sala completada!', 'success');
       } catch {
         addToast('Error al completar la sala', 'error');
@@ -473,6 +480,7 @@ export function GameplayPage() {
     setRoomGoldResults({});
     setExpandedRoomIndex(null);
     store.nextFloor();
+    setSaveCounter((c) => c + 1);
   }, [store]);
 
   const handleCompleteExpedition = useCallback(async () => {
@@ -485,7 +493,6 @@ export function GameplayPage() {
       return;
     try {
       await expeditionService.update(store.activeExpedition.id, { estado: 'completada' });
-      localStorage.removeItem(`mea-culpa-gameplay-${id}`);
       addToast('Expedicion completada!', 'success');
       navigate(`/expeditions/${id}/summary`);
     } catch {

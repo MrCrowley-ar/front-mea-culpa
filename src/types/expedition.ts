@@ -8,6 +8,7 @@ export interface Expedicion {
   estado: EstadoExpedicion;
   piso_actual: number;
   notas: string | null;
+  tiene_snapshot: boolean;
   created_at: string;
   updated_at: string;
 }

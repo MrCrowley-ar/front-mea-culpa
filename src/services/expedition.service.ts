@@ -61,4 +61,15 @@ export const expeditionService = {
   reactivarParticipante: async (participacionId: number): Promise<void> => {
     await api.put(`/expediciones/participaciones/${participacionId}/reactivar`);
   },
+
+  saveSnapshot: async (id: number, estado_snapshot: object): Promise<void> => {
+    await api.put(`/expediciones/${id}/snapshot`, { estado_snapshot });
+  },
+
+  getSnapshot: async (id: number): Promise<object | null> => {
+    const { data } = await api.get<{ expedicion_id: number; estado_snapshot: object | null }>(
+      `/expediciones/${id}/snapshot`
+    );
+    return data.estado_snapshot;
+  },
 };
