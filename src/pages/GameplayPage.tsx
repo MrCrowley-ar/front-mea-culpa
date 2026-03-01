@@ -76,6 +76,7 @@ export function GameplayPage() {
   // Drag and drop state
   const draggingItem = useRef<{ roomIndex: number; itemIndex: number } | null>(null);
   const [dragOverParticipantId, setDragOverParticipantId] = useState<number | null>(null);
+  const [dragOverSellZone, setDragOverSellZone] = useState(false);
 
   const selectedPisosFromUrl =
     searchParams.get('pisos')?.split(',').map(Number).filter(Boolean) || [];
@@ -597,37 +598,36 @@ export function GameplayPage() {
     return <p className="text-stone-500">Expedicion no encontrada</p>;
   }
 
+  // Items marked for sale across all rooms (for sell zone display)
+  const allItemsForSale = Object.entries(roomItemsForSale).flatMap(([roomIndexStr, indices]) => {
+    const roomIndex = parseInt(roomIndexStr);
+    const room = store.rooms[roomIndex];
+    return indices.map((indice) => {
+      const item = room?.rewardsResult?.items_pendientes.find((it) => it.indice === indice);
+      return item?.item_nombre ?? 'Item';
+    });
+  });
+
   return (
-    <div className="space-y-4 max-w-7xl">
+    <div className="max-w-lg mx-auto space-y-3">
       {/* ═══ HEADER ═══ */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-stone-100 font-[var(--font-heading)]">
-            Expedicion #{store.activeExpedition.id}
-          </h1>
-          <p className="text-sm text-stone-500">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h1 className="text-base font-bold text-stone-100 font-[var(--font-heading)] leading-tight">
+            Exp #{store.activeExpedition.id}
             {currentFloorConfig && (
-              <>
-                Piso {currentFloorConfig.piso}
-                {currentPiso &&
-                  ` — Tier ${currentPiso.tier_numero} (${
-                    TIER_LABELS[currentPiso.tier_numero]
-                  }) — Bonus +${currentPiso.bonus_recompensa}`}
-              </>
+              <span className="text-stone-500 font-normal ml-2 text-sm">
+                · Piso {currentFloorConfig.piso}
+                {store.floorConfigs.length > 1 &&
+                  ` (${store.currentFloorIndex + 1}/${store.floorConfigs.length})`}
+                {store.rooms.length > 0 && ` · ${completedCount}/${store.rooms.length}`}
+              </span>
             )}
-            {store.floorConfigs.length > 1 && (
-              <> — Piso {store.currentFloorIndex + 1}/{store.floorConfigs.length}</>
-            )}
-            {store.rooms.length > 0 && ` — ${completedCount}/${store.rooms.length} salas`}
-          </p>
+          </h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-shrink-0">
           <Badge estado="en_curso" label="En Curso" />
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => navigate(`/expeditions/${id}/summary`)}
-          >
+          <Button size="sm" variant="secondary" onClick={() => navigate(`/expeditions/${id}/summary`)}>
             Resumen
           </Button>
         </div>
@@ -639,7 +639,7 @@ export function GameplayPage() {
           {store.floorConfigs.map((fc, i) => (
             <div
               key={fc.piso}
-              className={`h-2 flex-1 rounded-full transition-colors ${
+              className={`h-1 flex-1 rounded-full transition-colors ${
                 i < store.currentFloorIndex
                   ? 'bg-emerald-500'
                   : i === store.currentFloorIndex
@@ -655,31 +655,16 @@ export function GameplayPage() {
       {/* ═══ CONFIGURE FLOOR ═══ */}
       {setupPhase === 'configure_floor' && currentFloorConfig && (
         <Card>
-          <h2 className="text-lg font-semibold text-stone-200 mb-4 font-[var(--font-heading)]">
-            Configurar Piso {currentFloorConfig.piso}
+          <h2 className="text-sm font-semibold text-stone-200 mb-3 font-[var(--font-heading)]">
+            Piso {currentFloorConfig.piso}
+            {currentPiso && (
+              <span className="text-stone-500 font-normal ml-2">
+                · Tier {currentPiso.tier_numero} · Bonus +{currentPiso.bonus_recompensa}
+              </span>
+            )}
           </h2>
-          {currentPiso && (
-            <div className="mb-4 p-3 rounded bg-[var(--color-dungeon)] border border-[var(--color-dungeon-border)]">
-              <div className="grid grid-cols-3 gap-2 text-sm">
-                <div>
-                  <span className="text-stone-500 text-xs">Tier</span>
-                  <p className="text-stone-200">
-                    {currentPiso.tier_numero} ({TIER_LABELS[currentPiso.tier_numero]})
-                  </p>
-                </div>
-                <div>
-                  <span className="text-stone-500 text-xs">Bonus Recompensa</span>
-                  <p className="text-amber-400">+{currentPiso.bonus_recompensa}</p>
-                </div>
-                <div>
-                  <span className="text-stone-500 text-xs">Salas Comunes</span>
-                  <p className="text-stone-200">{currentPiso.num_habitaciones_comunes}</p>
-                </div>
-              </div>
-            </div>
-          )}
-          <div className="space-y-4">
-            <div className="flex gap-6 flex-wrap">
+          <div className="space-y-3">
+            <div className="flex gap-5">
               <label className="flex items-center gap-2 text-sm text-stone-300 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -687,7 +672,7 @@ export function GameplayPage() {
                   onChange={(e) => setIncludeBonus(e.target.checked)}
                   className="rounded border-stone-600 bg-stone-800 text-amber-500 focus:ring-amber-500 w-4 h-4"
                 />
-                <span>Sala Bonus ✨</span>
+                Bonus ✨
               </label>
               <label className="flex items-center gap-2 text-sm text-stone-300 cursor-pointer select-none">
                 <input
@@ -696,81 +681,187 @@ export function GameplayPage() {
                   onChange={(e) => setIncludeEvento(e.target.checked)}
                   className="rounded border-stone-600 bg-stone-800 text-amber-500 focus:ring-amber-500 w-4 h-4"
                 />
-                <span>Sala Evento ⚡</span>
+                Evento ⚡
               </label>
             </div>
-            <p className="text-xs text-stone-600">+ 1 sala de jefe (siempre incluida)</p>
-            <Button onClick={handleGenerateFloor} loading={generatingFloor} size="lg">
+            <p className="text-xs text-stone-600">+ 1 sala de jefe siempre incluida</p>
+            <Button onClick={handleGenerateFloor} loading={generatingFloor}>
               Generar Salas
             </Button>
           </div>
         </Card>
       )}
 
-      {/* ═══ TWO-COLUMN LAYOUT: Rooms (Left) + Participants (Right) ═══ */}
+      {/* ═══ PLAYING LAYOUT ═══ */}
       {setupPhase !== 'configure_floor' && store.rooms.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4 items-start">
-          {/* ── LEFT: Rooms ── */}
-          <div className="space-y-3">
-            {/* Room progress bar */}
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold text-stone-200 font-[var(--font-heading)]">
+        <div className="space-y-3">
+
+          {/* ── REGISTRO DE PERSONAJES ── */}
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-semibold text-stone-600 uppercase tracking-widest px-1">
+              Registro
+            </p>
+            {store.participants.length === 0 && (
+              <p className="text-stone-600 text-sm px-1">Sin participantes.</p>
+            )}
+            {store.participants.map((p) => {
+              const goldFromRooms = totalGoldByParticipant[p.id] || 0;
+              const assignedItems = itemsByParticipant[p.id] || [];
+              const isDragOver = dragOverParticipantId === p.id;
+
+              return (
+                <div
+                  key={p.id}
+                  onDragOver={(e) => handleParticipantDragOver(e, p.id)}
+                  onDragLeave={handleParticipantDragLeave}
+                  onDrop={(e) => handleParticipantDrop(e, p.id)}
+                  className={`rounded-lg border p-3 transition-all ${
+                    isDragOver
+                      ? 'border-amber-400 bg-amber-500/10 ring-1 ring-amber-400/40'
+                      : p.activo
+                      ? 'border-[var(--color-dungeon-border)] bg-[var(--color-dungeon-surface)]'
+                      : 'border-red-800/30 bg-red-900/10 opacity-60'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0 space-y-0.5">
+                      <p className={`text-sm font-semibold leading-tight ${p.activo ? 'text-stone-100' : 'text-stone-500 line-through'}`}>
+                        {p.nombre_personaje}
+                      </p>
+                      <p className="text-xs text-stone-500">{p.usuario_nombre}</p>
+                      {assignedItems.length > 0 && (
+                        <p className="text-xs text-emerald-400 leading-relaxed pt-0.5">
+                          {assignedItems.map(({ roomIndex, item }) => {
+                            const resultado = store.rooms[roomIndex]?.rewardsResult?.resultados[item.indice];
+                            return resultado?.item_con_modificador ||
+                              (item.modificador_tier > 0
+                                ? `${item.item_nombre} +${item.modificador_tier}`
+                                : item.item_nombre);
+                          }).join(', ')}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                      <span className="text-amber-400 font-mono font-bold text-sm">
+                        {goldFromRooms}g
+                      </span>
+                      <button
+                        onClick={() =>
+                          p.activo ? handleDeactivatePlayer(p.id) : handleReactivatePlayer(p.id)
+                        }
+                        className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                          p.activo
+                            ? 'border-red-700/40 text-red-400 hover:bg-red-900/20'
+                            : 'border-emerald-700/40 text-emerald-400 hover:bg-emerald-900/20'
+                        }`}
+                      >
+                        {p.activo ? 'Desactivar' : 'Reactivar'}
+                      </button>
+                    </div>
+                  </div>
+                  {isDragOver && (
+                    <p className="text-center text-xs text-amber-400 font-medium mt-2 pt-2 border-t border-amber-500/20">
+                      Soltar aqui para asignar
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── ZONA DE VENTA ── */}
+          {setupPhase === 'playing' && (
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOverSellZone(true); }}
+              onDragLeave={() => setDragOverSellZone(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverSellZone(false);
+                if (draggingItem.current) {
+                  const { roomIndex, itemIndex } = draggingItem.current;
+                  handleMarkItemForSale(roomIndex, itemIndex);
+                  draggingItem.current = null;
+                }
+              }}
+              className={`rounded-lg border-2 border-dashed p-3 transition-all ${
+                dragOverSellZone
+                  ? 'border-amber-400 bg-amber-500/10'
+                  : 'border-stone-700 bg-[var(--color-dungeon-surface)]/30'
+              }`}
+            >
+              <div className="flex items-start gap-2.5">
+                <span className="text-xl flex-shrink-0">💰</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-stone-400 font-medium leading-tight">Zona de venta</p>
+                  {allItemsForSale.length > 0 ? (
+                    <p className="text-xs text-amber-300 mt-0.5 leading-relaxed">
+                      {allItemsForSale.join(', ')}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-stone-600 mt-0.5">
+                      Arrastra items aqui para vender
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── TIRADAS D20 ENCUENTROS ── */}
+          {setupPhase === 'rooms_generated' && !allEncountersResolved && (
+            <Card>
+              <h3 className="text-sm font-semibold text-stone-200 mb-3 font-[var(--font-heading)]">
+                Tiradas d20 — encuentros
+              </h3>
+              <div className="space-y-2 mb-3">
+                {store.rooms.map((room, i) => (
+                  <div key={room.habitacion.id} className="flex items-center gap-3">
+                    <span className="text-base w-6 text-center flex-shrink-0">
+                      {ROOM_TYPE_ICONS[room.habitacion.tipo_nombre] || '🚪'}
+                    </span>
+                    <span className="text-stone-400 text-sm flex-1 capitalize">
+                      Sala {room.habitacion.orden} — {room.habitacion.tipo_nombre}
+                    </span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={encounterTiradas[i] ?? ''}
+                      onChange={(e) =>
+                        setEncounterTiradas((prev) => ({ ...prev, [i]: e.target.value }))
+                      }
+                      placeholder="1–20"
+                      className="w-16 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-2 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                    />
+                  </div>
+                ))}
+              </div>
+              <Button
+                onClick={handleRollAllEncounters}
+                loading={rollingAllEncounters}
+                disabled={store.rooms.some((_, i) => !encounterTiradas[i])}
+              >
+                Resolver encuentros →
+              </Button>
+            </Card>
+          )}
+
+          {/* ── SALAS ── */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <p className="text-[10px] font-semibold text-stone-600 uppercase tracking-widest">
                 Salas — Piso {currentFloorConfig?.piso}
-              </h2>
-              <span className="text-sm text-stone-500">
-                {completedCount}/{store.rooms.length} completadas
+              </p>
+              <span className="text-xs text-stone-600">
+                {completedCount}/{store.rooms.length}
               </span>
             </div>
-            <div className="h-1.5 rounded-full bg-[var(--color-dungeon-border)] overflow-hidden">
+            <div className="h-1 rounded-full bg-[var(--color-dungeon-border)] overflow-hidden">
               <div
                 className="h-full bg-amber-500 rounded-full transition-all duration-500"
-                style={{
-                  width: `${(completedCount / Math.max(store.rooms.length, 1)) * 100}%`,
-                }}
+                style={{ width: `${(completedCount / Math.max(store.rooms.length, 1)) * 100}%` }}
               />
             </div>
-
-            {/* Manual encounter d20 entry */}
-            {setupPhase === 'rooms_generated' && !allEncountersResolved && (
-              <Card>
-                <h3 className="text-sm font-semibold text-stone-200 mb-3 font-[var(--font-heading)]">
-                  Tiradas de encuentro (d20)
-                </h3>
-                <div className="space-y-2 mb-4">
-                  {store.rooms.map((room, i) => (
-                    <div key={room.habitacion.id} className="flex items-center gap-3">
-                      <span className="text-base w-6 text-center flex-shrink-0">
-                        {ROOM_TYPE_ICONS[room.habitacion.tipo_nombre] || '🚪'}
-                      </span>
-                      <span className="text-stone-400 text-sm flex-1 capitalize">
-                        Sala {room.habitacion.orden} — {room.habitacion.tipo_nombre}
-                      </span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="20"
-                        value={encounterTiradas[i] ?? ''}
-                        onChange={(e) =>
-                          setEncounterTiradas((prev) => ({ ...prev, [i]: e.target.value }))
-                        }
-                        placeholder="1-20"
-                        className="w-16 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-2 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
-                      />
-                    </div>
-                  ))}
-                </div>
-                <Button
-                  onClick={handleRollAllEncounters}
-                  loading={rollingAllEncounters}
-                  disabled={store.rooms.some((_, i) => !encounterTiradas[i])}
-                  size="lg"
-                >
-                  Resolver encuentros →
-                </Button>
-              </Card>
-            )}
-
-            {/* Rooms list */}
             {store.rooms.map((room, roomIndex) => (
               <RoomCard
                 key={room.habitacion.id}
@@ -813,156 +904,27 @@ export function GameplayPage() {
                 onCompleteRoom={() => handleCompleteRoom(roomIndex)}
               />
             ))}
-
-            {/* Floor completed */}
-            {setupPhase === 'playing' && allRoomsCompleted && (
-              <Card className="border-amber-600/50 text-center">
-                <p className="text-amber-400 text-lg font-[var(--font-heading)] mb-4">
-                  Piso {currentFloorConfig?.piso} Completado!
-                </p>
-                <div className="flex gap-3 justify-center flex-wrap">
-                  {!isLastFloor ? (
-                    <Button onClick={handleNextFloor} size="lg">
-                      Siguiente Piso →
-                    </Button>
-                  ) : (
-                    <Button onClick={handleCompleteExpedition} size="lg">
-                      Finalizar Expedicion
-                    </Button>
-                  )}
-                  <Button
-                    variant="secondary"
-                    onClick={() => navigate(`/expeditions/${id}/summary`)}
-                  >
-                    Ver Resumen
-                  </Button>
-                </div>
-              </Card>
-            )}
           </div>
 
-          {/* ── RIGHT: Participants ── */}
-          <div className="space-y-3 lg:sticky lg:top-4">
-            <h2 className="text-base font-semibold text-stone-200 font-[var(--font-heading)]">
-              Personajes
-            </h2>
-            {store.participants.length === 0 && (
-              <p className="text-stone-600 text-sm">Sin participantes.</p>
-            )}
-            {store.participants.map((p) => {
-              const goldFromRooms = totalGoldByParticipant[p.id] || 0;
-              const assignedItems = itemsByParticipant[p.id] || [];
-              const isDragOver = dragOverParticipantId === p.id;
-
-              return (
-                <div
-                  key={p.id}
-                  onDragOver={(e) => handleParticipantDragOver(e, p.id)}
-                  onDragLeave={handleParticipantDragLeave}
-                  onDrop={(e) => handleParticipantDrop(e, p.id)}
-                  className={`rounded-lg border p-3 transition-all ${
-                    isDragOver
-                      ? 'border-amber-400 bg-amber-500/10 ring-1 ring-amber-400/40'
-                      : p.activo
-                      ? 'border-[var(--color-dungeon-border)] bg-[var(--color-dungeon-surface)]'
-                      : 'border-red-800/30 bg-red-900/10 opacity-70'
-                  }`}
-                >
-                  {/* Participant header */}
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs flex-shrink-0 ${
-                          p.activo
-                            ? 'bg-amber-600/20 border border-amber-600/40 text-amber-400'
-                            : 'bg-red-900/30 border border-red-800/40 text-red-400'
-                        }`}
-                      >
-                        {p.nombre_personaje.charAt(0)}
-                      </div>
-                      <div className="min-w-0">
-                        <p
-                          className={`text-sm font-medium truncate ${
-                            p.activo ? 'text-stone-200' : 'text-stone-500 line-through'
-                          }`}
-                        >
-                          {p.nombre_personaje}
-                        </p>
-                        <p className="text-xs text-stone-500 truncate">{p.usuario_nombre}</p>
-                      </div>
-                    </div>
-                    {/* Active toggle */}
-                    <button
-                      onClick={() =>
-                        p.activo
-                          ? handleDeactivatePlayer(p.id)
-                          : handleReactivatePlayer(p.id)
-                      }
-                      className={`text-xs px-2 py-0.5 rounded border transition-colors flex-shrink-0 ${
-                        p.activo
-                          ? 'border-red-700/40 text-red-400 hover:bg-red-900/20'
-                          : 'border-emerald-700/40 text-emerald-400 hover:bg-emerald-900/20'
-                      }`}
-                    >
-                      {p.activo ? 'Desactivar' : 'Reactivar'}
-                    </button>
-                  </div>
-
-                  {/* Gold */}
-                  <div className="flex items-center justify-between text-xs mb-2">
-                    <span className="text-stone-500">Oro esta sesion</span>
-                    <span className="text-amber-400 font-mono font-bold">
-                      {goldFromRooms}g
-                    </span>
-                  </div>
-
-                  {/* Assigned items */}
-                  {assignedItems.length > 0 && (
-                    <div className="space-y-1 mt-2 pt-2 border-t border-[var(--color-dungeon-border)]">
-                      <p className="text-[10px] text-stone-500 uppercase tracking-wider">
-                        Items asignados
-                      </p>
-                      {assignedItems.map(({ roomIndex, item }) => {
-                        const resultado =
-                          store.rooms[roomIndex]?.rewardsResult?.resultados[item.indice];
-                        const displayName =
-                          resultado?.item_con_modificador ||
-                          (item.modificador_tier > 0
-                            ? `${item.item_nombre} +${item.modificador_tier}`
-                            : item.item_nombre);
-                        return (
-                          <div
-                            key={`${roomIndex}-${item.indice}`}
-                            className="flex items-center gap-1.5 text-xs text-emerald-300"
-                          >
-                            <span className="text-emerald-600 flex-shrink-0">⚔</span>
-                            <span className="truncate flex-1">{displayName}</span>
-                            <span className="text-stone-600 flex-shrink-0">
-                              S{roomIndex + 1}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Drop hint */}
-                  {isDragOver && (
-                    <div className="mt-2 text-center text-xs text-amber-400 font-medium">
-                      Soltar aqui para asignar
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {/* Info about drag-and-drop */}
-            {setupPhase === 'playing' && store.rooms.some((r) => r.rewardsResolved) && (
-              <p className="text-xs text-stone-600 text-center">
-                Arrastra los items desde cada sala hacia un personaje para asignarlos.
+          {/* ── PISO COMPLETADO ── */}
+          {setupPhase === 'playing' && allRoomsCompleted && (
+            <div className="rounded-lg border border-amber-600/40 p-4 text-center space-y-3">
+              <p className="text-amber-400 font-[var(--font-heading)] text-sm">
+                ✓ Piso {currentFloorConfig?.piso} completado
               </p>
-            )}
-          </div>
+              <div className="flex gap-2 justify-center flex-wrap">
+                {!isLastFloor ? (
+                  <Button onClick={handleNextFloor}>Siguiente Piso →</Button>
+                ) : (
+                  <Button onClick={handleCompleteExpedition}>Finalizar Expedicion</Button>
+                )}
+                <Button variant="secondary" onClick={() => navigate(`/expeditions/${id}/summary`)}>
+                  Ver Resumen
+                </Button>
+              </div>
+            </div>
+          )}
+
         </div>
       )}
     </div>
