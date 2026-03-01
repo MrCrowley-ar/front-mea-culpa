@@ -609,7 +609,7 @@ export function GameplayPage() {
   });
 
   return (
-    <div className="max-w-lg mx-auto space-y-3">
+    <div className="space-y-3">
       {/* ═══ HEADER ═══ */}
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
@@ -654,7 +654,7 @@ export function GameplayPage() {
 
       {/* ═══ CONFIGURE FLOOR ═══ */}
       {setupPhase === 'configure_floor' && currentFloorConfig && (
-        <Card>
+        <Card className="max-w-sm">
           <h2 className="text-sm font-semibold text-stone-200 mb-3 font-[var(--font-heading)]">
             Piso {currentFloorConfig.piso}
             {currentPiso && (
@@ -692,18 +692,20 @@ export function GameplayPage() {
         </Card>
       )}
 
-      {/* ═══ PLAYING LAYOUT ═══ */}
+      {/* ═══ TWO-COLUMN: sidebar fijo + salas scrollables ═══ */}
       {setupPhase !== 'configure_floor' && store.rooms.length > 0 && (
-        <div className="space-y-3">
+        <div className="flex gap-3 items-start">
 
-          {/* ── REGISTRO DE PERSONAJES ── */}
-          <div className="space-y-1.5">
+          {/* ── SIDEBAR: registro + zona de venta (sticky) ── */}
+          <div className="w-52 flex-shrink-0 sticky top-4 max-h-[calc(100vh-5rem)] overflow-y-auto space-y-2">
             <p className="text-[10px] font-semibold text-stone-600 uppercase tracking-widest px-1">
               Registro
             </p>
+
             {store.participants.length === 0 && (
-              <p className="text-stone-600 text-sm px-1">Sin participantes.</p>
+              <p className="text-stone-600 text-xs px-1">Sin participantes.</p>
             )}
+
             {store.participants.map((p) => {
               const goldFromRooms = totalGoldByParticipant[p.id] || 0;
               const assignedItems = itemsByParticipant[p.id] || [];
@@ -715,7 +717,7 @@ export function GameplayPage() {
                   onDragOver={(e) => handleParticipantDragOver(e, p.id)}
                   onDragLeave={handleParticipantDragLeave}
                   onDrop={(e) => handleParticipantDrop(e, p.id)}
-                  className={`rounded-lg border p-3 transition-all ${
+                  className={`rounded-lg border p-2.5 transition-all ${
                     isDragOver
                       ? 'border-amber-400 bg-amber-500/10 ring-1 ring-amber-400/40'
                       : p.activo
@@ -723,14 +725,14 @@ export function GameplayPage() {
                       : 'border-red-800/30 bg-red-900/10 opacity-60'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start justify-between gap-1.5">
                     <div className="flex-1 min-w-0 space-y-0.5">
-                      <p className={`text-sm font-semibold leading-tight ${p.activo ? 'text-stone-100' : 'text-stone-500 line-through'}`}>
+                      <p className={`text-sm font-semibold leading-tight truncate ${p.activo ? 'text-stone-100' : 'text-stone-500 line-through'}`}>
                         {p.nombre_personaje}
                       </p>
-                      <p className="text-xs text-stone-500">{p.usuario_nombre}</p>
+                      <p className="text-[11px] text-stone-500 truncate">{p.usuario_nombre}</p>
                       {assignedItems.length > 0 && (
-                        <p className="text-xs text-emerald-400 leading-relaxed pt-0.5">
+                        <p className="text-[11px] text-emerald-400 leading-relaxed break-words pt-0.5">
                           {assignedItems.map(({ roomIndex, item }) => {
                             const resultado = store.rooms[roomIndex]?.rewardsResult?.resultados[item.indice];
                             return resultado?.item_con_modificador ||
@@ -741,7 +743,7 @@ export function GameplayPage() {
                         </p>
                       )}
                     </div>
-                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
                       <span className="text-amber-400 font-mono font-bold text-sm">
                         {goldFromRooms}g
                       </span>
@@ -749,28 +751,26 @@ export function GameplayPage() {
                         onClick={() =>
                           p.activo ? handleDeactivatePlayer(p.id) : handleReactivatePlayer(p.id)
                         }
-                        className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                        className={`text-[9px] px-1 py-0.5 rounded border transition-colors ${
                           p.activo
                             ? 'border-red-700/40 text-red-400 hover:bg-red-900/20'
                             : 'border-emerald-700/40 text-emerald-400 hover:bg-emerald-900/20'
                         }`}
                       >
-                        {p.activo ? 'Desactivar' : 'Reactivar'}
+                        {p.activo ? '✕' : '↩'}
                       </button>
                     </div>
                   </div>
                   {isDragOver && (
-                    <p className="text-center text-xs text-amber-400 font-medium mt-2 pt-2 border-t border-amber-500/20">
-                      Soltar aqui para asignar
+                    <p className="text-center text-[11px] text-amber-400 font-medium mt-1.5 pt-1.5 border-t border-amber-500/20">
+                      Soltar aqui
                     </p>
                   )}
                 </div>
               );
             })}
-          </div>
 
-          {/* ── ZONA DE VENTA ── */}
-          {setupPhase === 'playing' && (
+            {/* Zona de venta */}
             <div
               onDragOver={(e) => { e.preventDefault(); setDragOverSellZone(true); }}
               onDragLeave={() => setDragOverSellZone(false)}
@@ -783,148 +783,152 @@ export function GameplayPage() {
                   draggingItem.current = null;
                 }
               }}
-              className={`rounded-lg border-2 border-dashed p-3 transition-all ${
+              className={`rounded-lg border-2 border-dashed p-2.5 transition-all ${
                 dragOverSellZone
                   ? 'border-amber-400 bg-amber-500/10'
                   : 'border-stone-700 bg-[var(--color-dungeon-surface)]/30'
               }`}
             >
-              <div className="flex items-start gap-2.5">
-                <span className="text-xl flex-shrink-0">💰</span>
+              <div className="flex items-start gap-2">
+                <span className="text-lg flex-shrink-0 leading-none">💰</span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-stone-400 font-medium leading-tight">Zona de venta</p>
+                  <p className="text-xs text-stone-400 font-medium leading-tight">Vender</p>
                   {allItemsForSale.length > 0 ? (
-                    <p className="text-xs text-amber-300 mt-0.5 leading-relaxed">
+                    <p className="text-[11px] text-amber-300 mt-0.5 leading-relaxed break-words">
                       {allItemsForSale.join(', ')}
                     </p>
                   ) : (
-                    <p className="text-xs text-stone-600 mt-0.5">
-                      Arrastra items aqui para vender
+                    <p className="text-[11px] text-stone-600 mt-0.5">
+                      Arrastra items aqui
                     </p>
                   )}
                 </div>
               </div>
             </div>
-          )}
-
-          {/* ── TIRADAS D20 ENCUENTROS ── */}
-          {setupPhase === 'rooms_generated' && !allEncountersResolved && (
-            <Card>
-              <h3 className="text-sm font-semibold text-stone-200 mb-3 font-[var(--font-heading)]">
-                Tiradas d20 — encuentros
-              </h3>
-              <div className="space-y-2 mb-3">
-                {store.rooms.map((room, i) => (
-                  <div key={room.habitacion.id} className="flex items-center gap-3">
-                    <span className="text-base w-6 text-center flex-shrink-0">
-                      {ROOM_TYPE_ICONS[room.habitacion.tipo_nombre] || '🚪'}
-                    </span>
-                    <span className="text-stone-400 text-sm flex-1 capitalize">
-                      Sala {room.habitacion.orden} — {room.habitacion.tipo_nombre}
-                    </span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="20"
-                      value={encounterTiradas[i] ?? ''}
-                      onChange={(e) =>
-                        setEncounterTiradas((prev) => ({ ...prev, [i]: e.target.value }))
-                      }
-                      placeholder="1–20"
-                      className="w-16 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-2 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
-                    />
-                  </div>
-                ))}
-              </div>
-              <Button
-                onClick={handleRollAllEncounters}
-                loading={rollingAllEncounters}
-                disabled={store.rooms.some((_, i) => !encounterTiradas[i])}
-              >
-                Resolver encuentros →
-              </Button>
-            </Card>
-          )}
-
-          {/* ── SALAS ── */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between px-1">
-              <p className="text-[10px] font-semibold text-stone-600 uppercase tracking-widest">
-                Salas — Piso {currentFloorConfig?.piso}
-              </p>
-              <span className="text-xs text-stone-600">
-                {completedCount}/{store.rooms.length}
-              </span>
-            </div>
-            <div className="h-1 rounded-full bg-[var(--color-dungeon-border)] overflow-hidden">
-              <div
-                className="h-full bg-amber-500 rounded-full transition-all duration-500"
-                style={{ width: `${(completedCount / Math.max(store.rooms.length, 1)) * 100}%` }}
-              />
-            </div>
-            {store.rooms.map((room, roomIndex) => (
-              <RoomCard
-                key={room.habitacion.id}
-                room={room}
-                roomIndex={roomIndex}
-                isExpanded={expandedRoomIndex === roomIndex}
-                onToggle={() =>
-                  setExpandedRoomIndex(expandedRoomIndex === roomIndex ? null : roomIndex)
-                }
-                isPlaying={setupPhase === 'playing'}
-                activeParticipants={activeParticipants}
-                rewardsLoading={rewardsLoading === roomIndex}
-                assigningItems={assigningItems === roomIndex}
-                distributingGold={distributingGold === roomIndex}
-                completingRoom={completingRoom === roomIndex}
-                rewardTiradas={roomRewardTiradas[roomIndex] || []}
-                pendingSubtablas={roomPendingSubtablas[roomIndex] || []}
-                itemAssignments={roomItemAssignments[roomIndex] || {}}
-                itemsForSale={roomItemsForSale[roomIndex] || []}
-                goldTotal={roomGoldTotals[roomIndex] || ''}
-                goldResults={roomGoldResults[roomIndex] || []}
-                configItems={configItems}
-                onUpdateRewardTirada={(i, field, value) => {
-                  setRoomRewardTiradas((prev) => {
-                    const tiradas = [...(prev[roomIndex] || [])];
-                    tiradas[i] = { ...tiradas[i], [field]: value };
-                    return { ...prev, [roomIndex]: tiradas };
-                  });
-                }}
-                onProcessRewards={() => handleProcessRewards(roomIndex)}
-                onItemDragStart={(itemIndex) => handleItemDragStart(roomIndex, itemIndex)}
-                onUnassignItem={(itemIndex) => handleUnassignItem(roomIndex, itemIndex)}
-                onMarkItemForSale={(itemIndex) => handleMarkItemForSale(roomIndex, itemIndex)}
-                onConfirmAssignments={() => handleAssignItems(roomIndex)}
-                onGoldTotalChange={(val) =>
-                  setRoomGoldTotals((prev) => ({ ...prev, [roomIndex]: val }))
-                }
-                onRollGoldDice={() => handleRollGoldDice(roomIndex)}
-                onDistributeGold={() => handleDistributeGold(roomIndex)}
-                onCompleteRoom={() => handleCompleteRoom(roomIndex)}
-              />
-            ))}
           </div>
 
-          {/* ── PISO COMPLETADO ── */}
-          {setupPhase === 'playing' && allRoomsCompleted && (
-            <div className="rounded-lg border border-amber-600/40 p-4 text-center space-y-3">
-              <p className="text-amber-400 font-[var(--font-heading)] text-sm">
-                ✓ Piso {currentFloorConfig?.piso} completado
-              </p>
-              <div className="flex gap-2 justify-center flex-wrap">
-                {!isLastFloor ? (
-                  <Button onClick={handleNextFloor}>Siguiente Piso →</Button>
-                ) : (
-                  <Button onClick={handleCompleteExpedition}>Finalizar Expedicion</Button>
-                )}
-                <Button variant="secondary" onClick={() => navigate(`/expeditions/${id}/summary`)}>
-                  Ver Resumen
-                </Button>
-              </div>
-            </div>
-          )}
+          {/* ── MAIN: encuentros + salas ── */}
+          <div className="flex-1 min-w-0 space-y-3">
 
+            {/* Tiradas d20 encuentros */}
+            {setupPhase === 'rooms_generated' && !allEncountersResolved && (
+              <Card>
+                <h3 className="text-sm font-semibold text-stone-200 mb-3 font-[var(--font-heading)]">
+                  Tiradas d20 — encuentros
+                </h3>
+                <div className="space-y-2 mb-3">
+                  {store.rooms.map((room, i) => (
+                    <div key={room.habitacion.id} className="flex items-center gap-3">
+                      <span className="text-base w-6 text-center flex-shrink-0">
+                        {ROOM_TYPE_ICONS[room.habitacion.tipo_nombre] || '🚪'}
+                      </span>
+                      <span className="text-stone-400 text-sm flex-1 capitalize">
+                        Sala {room.habitacion.orden} — {room.habitacion.tipo_nombre}
+                      </span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="20"
+                        value={encounterTiradas[i] ?? ''}
+                        onChange={(e) =>
+                          setEncounterTiradas((prev) => ({ ...prev, [i]: e.target.value }))
+                        }
+                        placeholder="1–20"
+                        className="w-16 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-2 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  onClick={handleRollAllEncounters}
+                  loading={rollingAllEncounters}
+                  disabled={store.rooms.some((_, i) => !encounterTiradas[i])}
+                >
+                  Resolver encuentros →
+                </Button>
+              </Card>
+            )}
+
+            {/* Salas */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <p className="text-[10px] font-semibold text-stone-600 uppercase tracking-widest">
+                  Salas — Piso {currentFloorConfig?.piso}
+                </p>
+                <span className="text-xs text-stone-600">
+                  {completedCount}/{store.rooms.length}
+                </span>
+              </div>
+              <div className="h-1 rounded-full bg-[var(--color-dungeon-border)] overflow-hidden">
+                <div
+                  className="h-full bg-amber-500 rounded-full transition-all duration-500"
+                  style={{ width: `${(completedCount / Math.max(store.rooms.length, 1)) * 100}%` }}
+                />
+              </div>
+              {store.rooms.map((room, roomIndex) => (
+                <RoomCard
+                  key={room.habitacion.id}
+                  room={room}
+                  roomIndex={roomIndex}
+                  isExpanded={expandedRoomIndex === roomIndex}
+                  onToggle={() =>
+                    setExpandedRoomIndex(expandedRoomIndex === roomIndex ? null : roomIndex)
+                  }
+                  isPlaying={setupPhase === 'playing'}
+                  activeParticipants={activeParticipants}
+                  rewardsLoading={rewardsLoading === roomIndex}
+                  assigningItems={assigningItems === roomIndex}
+                  distributingGold={distributingGold === roomIndex}
+                  completingRoom={completingRoom === roomIndex}
+                  rewardTiradas={roomRewardTiradas[roomIndex] || []}
+                  pendingSubtablas={roomPendingSubtablas[roomIndex] || []}
+                  itemAssignments={roomItemAssignments[roomIndex] || {}}
+                  itemsForSale={roomItemsForSale[roomIndex] || []}
+                  goldTotal={roomGoldTotals[roomIndex] || ''}
+                  goldResults={roomGoldResults[roomIndex] || []}
+                  configItems={configItems}
+                  onUpdateRewardTirada={(i, field, value) => {
+                    setRoomRewardTiradas((prev) => {
+                      const tiradas = [...(prev[roomIndex] || [])];
+                      tiradas[i] = { ...tiradas[i], [field]: value };
+                      return { ...prev, [roomIndex]: tiradas };
+                    });
+                  }}
+                  onProcessRewards={() => handleProcessRewards(roomIndex)}
+                  onItemDragStart={(itemIndex) => handleItemDragStart(roomIndex, itemIndex)}
+                  onUnassignItem={(itemIndex) => handleUnassignItem(roomIndex, itemIndex)}
+                  onMarkItemForSale={(itemIndex) => handleMarkItemForSale(roomIndex, itemIndex)}
+                  onConfirmAssignments={() => handleAssignItems(roomIndex)}
+                  onGoldTotalChange={(val) =>
+                    setRoomGoldTotals((prev) => ({ ...prev, [roomIndex]: val }))
+                  }
+                  onRollGoldDice={() => handleRollGoldDice(roomIndex)}
+                  onDistributeGold={() => handleDistributeGold(roomIndex)}
+                  onCompleteRoom={() => handleCompleteRoom(roomIndex)}
+                />
+              ))}
+            </div>
+
+            {/* Piso completado */}
+            {setupPhase === 'playing' && allRoomsCompleted && (
+              <div className="rounded-lg border border-amber-600/40 p-4 text-center space-y-3">
+                <p className="text-amber-400 font-[var(--font-heading)] text-sm">
+                  ✓ Piso {currentFloorConfig?.piso} completado
+                </p>
+                <div className="flex gap-2 justify-center flex-wrap">
+                  {!isLastFloor ? (
+                    <Button onClick={handleNextFloor}>Siguiente Piso →</Button>
+                  ) : (
+                    <Button onClick={handleCompleteExpedition}>Finalizar Expedicion</Button>
+                  )}
+                  <Button variant="secondary" onClick={() => navigate(`/expeditions/${id}/summary`)}>
+                    Ver Resumen
+                  </Button>
+                </div>
+              </div>
+            )}
+
+          </div>
         </div>
       )}
     </div>
