@@ -256,7 +256,7 @@ export function GameplayPage() {
     // Validate all inputs
     for (let i = 0; i < store.rooms.length; i++) {
       const val = parseInt(encounterTiradas[i] || '');
-      if (isNaN(val) || val < 1 || val > 20) {
+      if (isNaN(val) || val < 1) {
         addToast('Todas las tiradas deben ser entre 1 y 20', 'error');
         return;
       }
@@ -266,7 +266,9 @@ export function GameplayPage() {
       for (let i = 0; i < store.rooms.length; i++) {
         const room = store.rooms[i];
         if (room.encounterResolved) continue;
-        const tirada = parseInt(encounterTiradas[i]);
+        const tiradaBase = parseInt(encounterTiradas[i]);
+        const bonus = currentPiso?.bonus_recompensa ?? 0;
+        const tirada = Math.min(tiradaBase + bonus, 20);
         const result = await gameplayService.resolverEncuentroHabitacion(
           room.habitacion.id,
           tirada
@@ -289,7 +291,7 @@ export function GameplayPage() {
     } finally {
       setRollingAllEncounters(false);
     }
-  }, [store, encounterTiradas, addToast]);
+  }, [store, encounterTiradas, currentPiso, addToast]);
 
   const handleProcessRewards = useCallback(
     async (roomIndex: number) => {
@@ -827,17 +829,18 @@ export function GameplayPage() {
                       <span className="text-stone-400 text-sm flex-1 capitalize">
                         Sala {room.habitacion.orden} — {room.habitacion.tipo_nombre}
                       </span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="20"
+                      <select
                         value={encounterTiradas[i] ?? ''}
                         onChange={(e) =>
                           setEncounterTiradas((prev) => ({ ...prev, [i]: e.target.value }))
                         }
-                        placeholder="1–20"
-                        className="w-16 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-2 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
-                      />
+                        className="w-16 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-1 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                      >
+                        <option value="" disabled>—</option>
+                        {Array.from({ length: 20 }, (_, n) => n + 1).map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
                     </div>
                   ))}
                 </div>
