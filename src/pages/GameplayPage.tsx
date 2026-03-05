@@ -270,7 +270,8 @@ export function GameplayPage() {
         const bonus = currentPiso?.bonus_recompensa ?? 0;
         const tirada = Math.min(tiradaBase + bonus, 20);
         const result = await gameplayService.resolverEncuentroHabitacion(
-          room.habitacion.id,
+          currentFloorConfig!.piso,
+          room.habitacion.tipo_habitacion_id,
           tirada
         );
         store.updateRoom(i, { encounterResult: result, encounterResolved: true });
