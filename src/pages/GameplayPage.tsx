@@ -256,8 +256,8 @@ export function GameplayPage() {
     // Validate all inputs
     for (let i = 0; i < store.rooms.length; i++) {
       const val = parseInt(encounterTiradas[i] || '');
-      if (isNaN(val) || val < 1 || val > 20) {
-        addToast('Todas las tiradas deben ser entre 1 y 20', 'error');
+      if (isNaN(val) || val < 1) {
+        addToast('Todas las tiradas deben ser mayor a 0', 'error');
         return;
       }
     }
@@ -301,8 +301,8 @@ export function GameplayPage() {
         tirada_subtabla: t.subtabla ? parseInt(t.subtabla) : undefined,
       }));
 
-      if (tiradas.some((t) => t.tirada_d20 < 1 || t.tirada_d20 > 20)) {
-        addToast('Todas las tiradas d20 deben ser entre 1 y 20', 'error');
+      if (tiradas.some((t) => t.tirada_d20 < 1)) {
+        addToast('Todas las tiradas d20 deben ser mayor a 0', 'error');
         return;
       }
 
@@ -830,7 +830,6 @@ export function GameplayPage() {
                       <input
                         type="number"
                         min="1"
-                        max="20"
                         value={encounterTiradas[i] ?? ''}
                         onChange={(e) =>
                           setEncounterTiradas((prev) => ({ ...prev, [i]: e.target.value }))
@@ -1297,7 +1296,6 @@ function RewardRollSection({
                 <input
                   type="number"
                   min="1"
-                  max="20"
                   value={t.d20}
                   onChange={(e) => onUpdate(i, 'd20', e.target.value)}
                   className="w-12 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-1.5 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
@@ -1310,7 +1308,6 @@ function RewardRollSection({
                 <input
                   type="number"
                   min="1"
-                  max="20"
                   value={t.subtabla}
                   onChange={(e) => onUpdate(i, 'subtabla', e.target.value)}
                   placeholder="—"
