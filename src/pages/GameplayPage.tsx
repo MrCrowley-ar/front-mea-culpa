@@ -294,7 +294,7 @@ export function GameplayPage() {
   const handleProcessRewards = useCallback(
     async (roomIndex: number) => {
       const room = store.rooms[roomIndex];
-      if (!room || !room.encounterResult) return;
+      if (!room || !room.encounterResult || !currentFloorConfig) return;
 
       const tiradas = (roomRewardTiradas[roomIndex] || []).map((t) => ({
         tirada_d20: parseInt(t.d20) || 0,
@@ -310,6 +310,8 @@ export function GameplayPage() {
       try {
         const result = await gameplayService.procesarRecompensas({
           historial_habitacion_id: room.habitacion.id,
+          piso: currentFloorConfig.piso,
+          tipo_habitacion_id: room.habitacion.tipo_habitacion_id,
           tiradas,
         });
         const pendingList = result.resultados.map((r) => r.requiere_subtabla);
@@ -332,7 +334,7 @@ export function GameplayPage() {
         setRewardsLoading(null);
       }
     },
-    [store, roomRewardTiradas, addToast]
+    [store, roomRewardTiradas, addToast, currentFloorConfig]
   );
 
   const handleUnassignItem = useCallback((roomIndex: number, itemIndice: number) => {

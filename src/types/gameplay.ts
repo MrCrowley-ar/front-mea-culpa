@@ -66,6 +66,8 @@ export interface RewardResponse {
 
 export interface ProcesarRecompensasRequest {
   historial_habitacion_id: number;
+  piso: number;
+  tipo_habitacion_id: number;
   tiradas: Array<{
     tirada_d20: number;
     tirada_subtabla?: number;
