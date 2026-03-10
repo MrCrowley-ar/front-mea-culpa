@@ -939,6 +939,7 @@ export function GameplayPage() {
                   completingRoom={completingRoom === roomIndex}
                   rewardTiradas={roomRewardTiradas[roomIndex] || []}
                   pendingSubtablas={roomPendingSubtablas[roomIndex] || []}
+                  subtablaNames={(room.rewardsResult?.resultados ?? []).map((r) => r.subtabla_nombre)}
                   itemAssignments={roomItemAssignments[roomIndex] || {}}
                   itemsForSale={roomItemsForSale[roomIndex] || []}
                   goldTotal={roomGoldTotals[roomIndex] || ''}
@@ -1010,6 +1011,7 @@ interface RoomCardProps {
   completingRoom: boolean;
   rewardTiradas: Array<{ d20: string; subtabla: string }>;
   pendingSubtablas: boolean[];
+  subtablaNames: (string | undefined)[];
   itemAssignments: Record<number, number>;
   itemsForSale: number[];
   goldTotal: string;
@@ -1041,6 +1043,7 @@ function RoomCard({
   completingRoom,
   rewardTiradas,
   pendingSubtablas,
+  subtablaNames,
   itemAssignments,
   itemsForSale,
   goldTotal,
@@ -1164,6 +1167,7 @@ function RoomCard({
                   enemyCount={room.encounterResult.cantidad_total}
                   tiradas={rewardTiradas}
                   pendingSubtablas={pendingSubtablas}
+                  subtablaNames={(room.rewardsResult?.resultados ?? []).map((r) => r.subtabla_nombre)}
                   loading={rewardsLoading}
                   bonus={bonus}
                   onUpdate={onUpdateRewardTirada}
@@ -1309,10 +1313,15 @@ const SUBTABLA_HINT: Record<string, string> = {
   critico: 'Critico',
 };
 
+const SUBTABLA_MAX: Record<string, number> = {
+  critico: 6,
+};
+
 function RewardRollSection({
   enemyCount,
   tiradas,
   pendingSubtablas,
+  subtablaNames,
   loading,
   bonus,
   onUpdate,
@@ -1321,6 +1330,7 @@ function RewardRollSection({
   enemyCount: number;
   tiradas: Array<{ d20: string; subtabla: string }>;
   pendingSubtablas: boolean[];
+  subtablaNames: (string | undefined)[];
   loading: boolean;
   bonus: number;
   onUpdate: (i: number, field: 'd20' | 'subtabla', value: string) => void;
@@ -1340,6 +1350,7 @@ function RewardRollSection({
       <div className="space-y-1.5">
         {tiradas.map((t, i) => {
           const needsSubtabla = pendingSubtablas[i] === true;
+          const subtablaMax = SUBTABLA_MAX[subtablaNames[i] ?? ''] ?? 20;
           return (
             <div
               key={i}
@@ -1372,7 +1383,7 @@ function RewardRollSection({
                 <input
                   type="number"
                   min="1"
-                  max="20"
+                  max={subtablaMax}
                   value={t.subtabla}
                   onChange={(e) => onUpdate(i, 'subtabla', e.target.value)}
                   placeholder="—"
