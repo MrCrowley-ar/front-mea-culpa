@@ -299,12 +299,13 @@ export function GameplayPage() {
       const room = store.rooms[roomIndex];
       if (!room || !room.encounterResult || !currentFloorConfig) return;
 
+      const bonus = currentPiso?.bonus_recompensa ?? 0;
       const allTiradas = (roomRewardTiradas[roomIndex] || []).map((t) => ({
-        tirada_d20: parseInt(t.d20) || 0,
-        tirada_subtabla: t.subtabla ? parseInt(t.subtabla) : undefined,
+        tirada_d20: Math.min((parseInt(t.d20) || 0) + bonus, 20),
+        tirada_subtabla: t.subtabla ? Math.min(parseInt(t.subtabla) + bonus, 20) : undefined,
       }));
 
-      if (allTiradas.some((t) => t.tirada_d20 < 1 || t.tirada_d20 > 20)) {
+      if (allTiradas.some((t) => t.tirada_d20 < 1)) {
         addToast('Todas las tiradas d20 deben ser entre 1 y 20', 'error');
         return;
       }
