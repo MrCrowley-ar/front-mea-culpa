@@ -299,15 +299,24 @@ export function GameplayPage() {
       const room = store.rooms[roomIndex];
       if (!room || !room.encounterResult || !currentFloorConfig) return;
 
-      const tiradas = (roomRewardTiradas[roomIndex] || []).map((t) => ({
+      const allTiradas = (roomRewardTiradas[roomIndex] || []).map((t) => ({
         tirada_d20: parseInt(t.d20) || 0,
         tirada_subtabla: t.subtabla ? parseInt(t.subtabla) : undefined,
       }));
 
-      if (tiradas.some((t) => t.tirada_d20 < 1 || t.tirada_d20 > 20)) {
+      if (allTiradas.some((t) => t.tirada_d20 < 1 || t.tirada_d20 > 20)) {
         addToast('Todas las tiradas d20 deben ser entre 1 y 20', 'error');
         return;
       }
+
+      const pendingFlags = roomPendingSubtablas[roomIndex] || [];
+      const isReprocess = pendingFlags.some(Boolean);
+
+      // On reprocess, only send the pending subtabla tiradas to avoid re-hitting resolved ones
+      const globalIndices = allTiradas
+        .map((_, i) => i)
+        .filter((i) => !isReprocess || pendingFlags[i]);
+      const tiradas = globalIndices.map((i) => allTiradas[i]);
 
       setRewardsLoading(roomIndex);
       try {
@@ -317,19 +326,59 @@ export function GameplayPage() {
           tipo_habitacion_id: room.habitacion.tipo_habitacion_id,
           tiradas,
         });
-        const pendingList = result.resultados.map((r) => r.requiere_subtabla);
-        const hasPending = pendingList.some(Boolean);
-        store.updateRoom(roomIndex, {
-          rewardsResult: result,
-          rewardsResolved: !hasPending,
-        });
-        setRoomPendingSubtablas((prev) => ({ ...prev, [roomIndex]: pendingList }));
-        setSaveCounter((c) => c + 1);
-        if (hasPending) {
-          addToast(
-            'Algunas recompensas necesitan una segunda tirada — completa los campos resaltados y re-procesa',
-            'error'
+
+        if (isReprocess && room.rewardsResult) {
+          // Merge new results back into existing resultados at the correct global positions
+          const mergedResultados = [...room.rewardsResult.resultados];
+          result.resultados.forEach((r, j) => {
+            mergedResultados[globalIndices[j]] = r;
+          });
+
+          // Fix item indices to global positions, then merge with existing non-pending items
+          const fixedItems = result.items_pendientes.map((item) => ({
+            ...item,
+            indice: globalIndices[item.indice],
+          }));
+          const existingItems = room.rewardsResult.items_pendientes.filter(
+            (item) => !pendingFlags[item.indice]
           );
+
+          const mergedResult = {
+            ...room.rewardsResult,
+            resultados: mergedResultados,
+            items_pendientes: [...existingItems, ...fixedItems],
+            oro_dados: [...room.rewardsResult.oro_dados, ...result.oro_dados],
+          };
+
+          const newPendingList = mergedResultados.map((r) => r.requiere_subtabla);
+          const hasPending = newPendingList.some(Boolean);
+          store.updateRoom(roomIndex, {
+            rewardsResult: mergedResult,
+            rewardsResolved: !hasPending,
+          });
+          setRoomPendingSubtablas((prev) => ({ ...prev, [roomIndex]: newPendingList }));
+          setSaveCounter((c) => c + 1);
+          if (hasPending) {
+            addToast(
+              'Algunas recompensas necesitan una segunda tirada — completa los campos resaltados y re-procesa',
+              'error'
+            );
+          }
+        } else {
+          const pendingList = result.resultados.map((r) => r.requiere_subtabla);
+          const hasPending = pendingList.some(Boolean);
+          store.updateRoom(roomIndex, {
+            rewardsResult: result,
+            rewardsResolved: !hasPending,
+          });
+          setRoomPendingSubtablas((prev) => ({ ...prev, [roomIndex]: pendingList }));
+          setSaveCounter((c) => c + 1);
+          if (hasPending) {
+            addToast(
+              'Algunas recompensas necesitan una segunda tirada — completa los campos resaltados y re-procesa',
+              'error'
+            );
+          }
         }
       } catch {
         addToast('Error al procesar recompensas', 'error');
@@ -337,7 +386,7 @@ export function GameplayPage() {
         setRewardsLoading(null);
       }
     },
-    [store, roomRewardTiradas, addToast, currentFloorConfig]
+    [store, roomRewardTiradas, roomPendingSubtablas, addToast, currentFloorConfig]
   );
 
   const handleUnassignItem = useCallback((roomIndex: number, itemIndice: number) => {
