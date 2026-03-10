@@ -50,7 +50,7 @@ export const gameplayService = {
         tipo_habitacion_id: dto.tipo_habitacion_id,
         tirada_d20: t.tirada_d20,
         ...(t.tirada_subtabla != null ? { tirada_subtabla: t.tirada_subtabla } : {}),
-      });
+      }, { maxRedirects: 0 });
       resultados.push(data);
 
       if (data.tipo_resultado === 'oro' && data.dados_oro) {

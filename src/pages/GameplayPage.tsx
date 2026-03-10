@@ -1298,14 +1298,16 @@ function RewardRollSection({
               </span>
               <div className="flex items-center gap-1">
                 <span className="text-xs text-stone-600">d20:</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="20"
+                <select
                   value={t.d20}
                   onChange={(e) => onUpdate(i, 'd20', e.target.value)}
-                  className="w-12 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-1.5 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
-                />
+                  className="w-14 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-1 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+                >
+                  <option value="" disabled>—</option>
+                  {Array.from({ length: 20 }, (_, n) => n + 1).map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
               </div>
               <div className="flex items-center gap-1">
                 <span className={`text-xs font-medium ${needsSubtabla ? 'text-amber-400' : 'text-stone-600'}`}>
