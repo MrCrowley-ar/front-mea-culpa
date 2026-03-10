@@ -302,7 +302,7 @@ export function GameplayPage() {
       const bonus = currentPiso?.bonus_recompensa ?? 0;
       const allTiradas = (roomRewardTiradas[roomIndex] || []).map((t) => ({
         tirada_d20: Math.min((parseInt(t.d20) || 0) + bonus, 20),
-        tirada_subtabla: t.subtabla ? Math.min(parseInt(t.subtabla) + bonus, 20) : undefined,
+        tirada_subtabla: t.subtabla ? parseInt(t.subtabla) : undefined,
       }));
 
       if (allTiradas.some((t) => t.tirada_d20 < 1)) {
