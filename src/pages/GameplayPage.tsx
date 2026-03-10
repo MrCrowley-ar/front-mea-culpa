@@ -888,7 +888,7 @@ export function GameplayPage() {
                         className="w-16 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-1 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
                       >
                         <option value="" disabled>—</option>
-                        {Array.from({ length: 20 - (currentPiso?.bonus_recompensa ?? 0) }, (_, n) => n + 1).map((n) => (
+                        {Array.from({ length: 20 - bonus }, (_, n) => n + 1).map((n) => (
                           <option key={n} value={n}>{n}</option>
                         ))}
                       </select>
@@ -931,6 +931,7 @@ export function GameplayPage() {
                     setExpandedRoomIndex(expandedRoomIndex === roomIndex ? null : roomIndex)
                   }
                   isPlaying={setupPhase === 'playing'}
+                  bonus={currentPiso?.bonus_recompensa ?? 0}
                   activeParticipants={activeParticipants}
                   rewardsLoading={rewardsLoading === roomIndex}
                   assigningItems={assigningItems === roomIndex}
@@ -1001,6 +1002,7 @@ interface RoomCardProps {
   isExpanded: boolean;
   onToggle: () => void;
   isPlaying: boolean;
+  bonus: number;
   activeParticipants: Participacion[];
   rewardsLoading: boolean;
   assigningItems: boolean;
@@ -1031,6 +1033,7 @@ function RoomCard({
   isExpanded,
   onToggle,
   isPlaying,
+  bonus,
   activeParticipants,
   rewardsLoading,
   assigningItems,
@@ -1162,7 +1165,7 @@ function RoomCard({
                   tiradas={rewardTiradas}
                   pendingSubtablas={pendingSubtablas}
                   loading={rewardsLoading}
-                  bonus={currentPiso?.bonus_recompensa ?? 0}
+                  bonus={bonus}
                   onUpdate={onUpdateRewardTirada}
                   onProcess={onProcessRewards}
                 />
