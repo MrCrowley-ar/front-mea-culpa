@@ -888,7 +888,7 @@ export function GameplayPage() {
                         className="w-16 rounded border bg-[var(--color-dungeon)] border-[var(--color-dungeon-border)] px-1 py-1 text-center text-sm text-stone-200 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
                       >
                         <option value="" disabled>—</option>
-                        {Array.from({ length: 20 - bonus }, (_, n) => n + 1).map((n) => (
+                        {Array.from({ length: 20 - (currentPiso?.bonus_recompensa ?? 0) }, (_, n) => n + 1).map((n) => (
                           <option key={n} value={n}>{n}</option>
                         ))}
                       </select>
